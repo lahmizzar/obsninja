@@ -4695,7 +4695,8 @@ a#reshare , a#inviteLinkURL{
 
 #guestTips {
 	margin: 0 auto 15px auto;
-	width: 463px;
+	max-width: 463px;
+	width: 100%;
 	display: flex;
 	flex-direction: column;
 	text-align: left;
@@ -4709,18 +4710,28 @@ a#reshare , a#inviteLinkURL{
 	margin-bottom: 10px;
 }
 
-#guestTips span:nth-child(1) {
-	color: red;
+#guestTips .guest-tip-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
 }
 
-#guestTips > span > i {
-	font-size: 2.5em;
-	margin-right: 10px;
+#guestTips .guest-tip-item {
+	display: flex;
+	align-items: center;
+	gap: 10px;
 }
 
-#guestTips > span > span {
-	line-height: 2.5em;
-	vertical-align: bottom;
+#guestTips .guest-tip-item + .guest-tip-item {
+	margin-top: 6px;
+}
+
+#guestTips .guest-tip-item i {
+	font-size: 2.2em;
+}
+
+#guestTips .guest-tip-item span {
+	line-height: 1.4em;
 }
 
 .video-label {
@@ -6848,6 +6859,11 @@ button.toggleSettings,
 	content: "\f542"; }
 .la-qrcode:before {
 	content: "\f029"; }
+.la-times-circle:before {
+	content: "\f057"; }
+.la-sun:before {
+	content: "\f185"; }
+	
 
 /* Minimal visual refresh overrides — non-invasive, CSS-only. */
 /* CHANGES BELOW MADE 2025-08-22 */

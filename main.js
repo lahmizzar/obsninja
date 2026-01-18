@@ -1821,8 +1821,8 @@ async function main() {
 	// &tipsid=xxx → use this overlay token, enable tips, fetch username from API
 	// &tipsid (no value) → show onboarding modal for signup
 	// Legacy: &tip, &tips, &tipid also supported for backwards compatibility
-	if (urlParams.has("tipsid") || urlParams.has("tip") || urlParams.has("tips") || urlParams.has("tipid")) {
-		var tipsIdValue = urlParams.get("tipsid") || urlParams.get("tip") || urlParams.get("tips") || urlParams.get("tipid");
+	if (urlParams.has("tipsid") || urlParams.has("tip") || urlParams.has("tipid")) {
+		var tipsIdValue = urlParams.get("tipsid") || urlParams.get("tip") || urlParams.get("tipid");
 		session.receiveTips = true;
 		if (tipsIdValue) {
 			session.tipsId = tipsIdValue;
@@ -3678,7 +3678,29 @@ async function main() {
 	}
 
 	if (urlParams.has("tips")) {
-		getById("guestTips").style.display = "flex";
+		const guestTips = getById("guestTips");
+		if (guestTips) {
+			const rawTipList = urlParams.get("tips");
+			const hasTipList = rawTipList && rawTipList.trim().length > 0;
+			const tipItems = guestTips.querySelectorAll(".guest-tip-item");
+			if (hasTipList) {
+				const selectedTips = new Set(
+					rawTipList
+						.split(",")
+						.map((entry) => entry.trim())
+						.filter((entry) => entry.length > 0)
+				);
+				tipItems.forEach((item) => {
+					const tipId = item.dataset.tipId;
+					item.style.display = selectedTips.has(tipId) ? "flex" : "none";
+				});
+			} else {
+				tipItems.forEach((item) => {
+					item.style.display = item.dataset.tipDefault === "true" ? "flex" : "none";
+				});
+			}
+			guestTips.style.display = "flex";
+		}
 	}
 
 	if (urlParams.has("audiogain") || urlParams.has("gain") || urlParams.has("g") || urlParams.has("muteguest")) {

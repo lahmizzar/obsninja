@@ -48,7 +48,7 @@
 		
 		<meta name="msapplication-TileColor" content="#da532c" />
 		<meta name="theme-color" content="#0f131d" />
-		<link rel="stylesheet" href="./main.css?ver=4034" />
+		<link rel="stylesheet" href="./main.css?ver=4035" />
 		<script type="text/javascript" crossorigin="anonymous" src="./thirdparty/adapter.js"></script>
 		
 		<link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon" />
@@ -514,9 +514,14 @@
 					</div>
 					<div id="guestTips" style="display:none" aria-hidden="true">
 						<p data-translate="for-the-best-possible-experience-make-sure">For the best possible experience, make sure</p>
-						<span><i class="las la-plug"></i><span data-translate="your-device-is-powered">Your device is powered</span></span>
-						<span><i class="las la-ethernet"></i><span data-translate="your-connection-is-hardwired-instead-of-wifi">Your connection is hardwired instead of wifi</span></span>
-						<span><i class="las la-headphones"></i><span data-translate="you-are-using-headphones-earphones">You are using headphones / earphones</span></span>
+						<ul class="guest-tip-list">
+							<li class="guest-tip-item" data-tip-id="1" data-tip-default="true"><i class="las la-plug"></i><span data-translate="your-device-is-powered">Your device is powered</span></li>
+							<li class="guest-tip-item" data-tip-id="2" data-tip-default="true"><i class="las la-ethernet"></i><span data-translate="your-connection-is-hardwired-instead-of-wifi">Your connection is hardwired instead of wifi</span></li>
+							<li class="guest-tip-item" data-tip-id="3" data-tip-default="true"><i class="las la-headphones"></i><span data-translate="you-are-using-headphones-earphones">You are using headphones / earphones</span></li>
+							<li class="guest-tip-item" data-tip-id="4"><i class="las la-times-circle"></i><span data-translate="close-other-video-apps">Close other video/calling apps</span></li>
+							<li class="guest-tip-item" data-tip-id="5"><i class="las la-volume-mute"></i><span data-translate="use-quiet-room">Use a quiet room</span></li>
+							<li class="guest-tip-item" data-tip-id="6"><i class="las la-sun"></i><span data-translate="face-good-lighting">Face a light source</span></li>
+						</ul>
 					</div>
 					<div id="videoMenu" class="videoMenu" aria-hidden="true">
 						<div class="title">

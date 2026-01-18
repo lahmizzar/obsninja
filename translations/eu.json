@@ -757,7 +757,6 @@
     "show-more-options": "Show more options",
     "system-default": "System Default",
     "streamid-already-published-obvious": "The stream ID you are publishing to is already in use.\n\nPlease consider using a password or a more varied/unique stream ID to avoid this issue.\n\nYou will now be disconnected.",
-    "what-bitrate-gdrive": "This remote guest will save the recording directly to their local disk, as well as send a copy to your Google Drive (recordings folder).\n\n - The recording can fail however, so have backup recordings going!\n\n - Guests using iPhones, Androids, or Safari will often have issues - bewarned.",
     "insecure-stream-id": "⚠️ Insecure stream ID detected\n\nIt is strongly advised that a password is used if using a short non-unique stream ID.\n\nThis is just a warning that can be ignored.",
     "mobile-no-screen-share": "Sorry, your mobile browser does not support screen-sharing.\n\nThe <a href='https://docs.vdo.ninja/getting-started/native-mobile-app-versions' target='_blank'>The native apps</a> do offer basic support for it though.",
     "no-screen-share-supported-firefox": "Zure nabigatzaileak ez du pantaila partekatzea onartzen.\n\nBaliteke Firefoxen ezarpenek blokeatzea edo gunea ez‑seguru irekitzea."

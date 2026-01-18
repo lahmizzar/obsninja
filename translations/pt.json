@@ -723,7 +723,6 @@
     "android-no-screen-share": "Sorry, your mobile browser does not support screen-sharing.\n\nThe <a href='https://docs.vdo.ninja/getting-started/native-mobile-app-versions' target='_blank'>Android native app</a> does offer basic support for it though.",
     "no-screen-share-supported": "Desculpe, o seu navegador não suporta partilha de ecrã.\n\nUse as versões desktop do Firefox ou Chrome.",
     "speech-not-suppoted": "⚠ Speech Recognition is not supported by this browser",
-    "blue-yeti-tip": "<i>Dica:</i> Microfones Blue Yeti podem ficar demasiado altos. <a href='https://support.google.com/chrome/thread/7542181?hl=en&msgid=79691143'>Veja aqui</a> uma solução ou desative o auto-gain no VDO.Ninja.",
     "site-not-responsive": "<h3>Notice: The system cannot be accessed or is currently slow to respond.</h3>\nIf a routing issue, try adding <i title='or try visiting https://proxy.vdo.ninja/'>&proxy</i> to the URL; you can also try <i>https://proxy.vdo.ninja</i> or a VPN if the service is blocked in your country.\n\nIf the main service is down, a backup version is also available here: <i>https://backup.vdo.ninja</i>\n\nContact steve@seguin.email for added help.\n\nThis service requires the use of Websockets over port 443.",
     "no-audio-source-detected": "No Audio Source was detected.\n\nIf you were wanting to capture an Application's Audio, please see:\nhttps://docs.vdo.ninja/help/guides-and-how-tos#audio for some guides.",
     "viewer-count": "Total outbound p2p connections of this remote stream",
@@ -758,7 +757,6 @@
     "show-more-options": "Show more options",
     "system-default": "System Default",
     "streamid-already-published-obvious": "The stream ID you are publishing to is already in use.\n\nPlease consider using a password or a more varied/unique stream ID to avoid this issue.\n\nYou will now be disconnected.",
-    "what-bitrate-gdrive": "Este convidado remoto guardará a gravação no disco local e enviará uma cópia para o seu Google Drive (recordings folder).\n\n - A gravação pode falhar, por isso faça backups!\n\n - Convidados com iPhone, Android ou Safari têm frequentemente problemas.",
     "insecure-stream-id": "⚠️ Insecure stream ID detected\n\nIt is strongly advised that a password is used if using a short non-unique stream ID.\n\nThis is just a warning that can be ignored.",
     "mobile-no-screen-share": "Sorry, your mobile browser does not support screen-sharing.\n\nThe <a href='https://docs.vdo.ninja/getting-started/native-mobile-app-versions' target='_blank'>The native apps</a> do offer basic support for it though.",
     "no-screen-share-supported-firefox": "O seu navegador não suporta partilha de ecrã.\n\nAs definições do Firefox podem bloqueá-la ou o site foi aberto de forma insegura."}

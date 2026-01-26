@@ -7918,6 +7918,7 @@ function updateMixerRun(e = false) {
 			var videoMargin = session.videoMargin || 0;
 			var borderRadius = session.borderRadius || 0;
 			var borderColor = session.borderColor || "#000";
+			var cropTop = 0, cropRight = 0, cropBottom = 0, cropLeft = 0;
 			var fadein = session.fadein || false;
 			var backgroundMedia = session.defaultMedia || false;
 			var foregroundMedia = session.defaultOverlayMedia || false;
@@ -7963,6 +7964,14 @@ function updateMixerRun(e = false) {
 				}
 				if (layout[vid.dataset.sid].borderColor) {
 					borderColor = layout[vid.dataset.sid].borderColor;
+				}
+				// Crop properties
+				if ("cropTop" in layout[vid.dataset.sid] || "cropRight" in layout[vid.dataset.sid] ||
+					"cropBottom" in layout[vid.dataset.sid] || "cropLeft" in layout[vid.dataset.sid]) {
+					cropTop = layout[vid.dataset.sid].cropTop || 0;
+					cropRight = layout[vid.dataset.sid].cropRight || 0;
+					cropBottom = layout[vid.dataset.sid].cropBottom || 0;
+					cropLeft = layout[vid.dataset.sid].cropLeft || 0;
 				}
 				if (layout[vid.dataset.sid].fadeIn) {
 					fadein = layout[vid.dataset.sid].fadeIn;
@@ -8352,6 +8361,12 @@ function updateMixerRun(e = false) {
 				vid.style.borderColor = borderColor;
 				vid.style.borderWidth = borderOffset + "px";
 				vid.style.borderRadius = borderRadius + "px";
+			// Apply crop via clip-path
+			if (cropTop || cropRight || cropBottom || cropLeft) {
+				vid.style.clipPath = `inset(${cropTop}px ${cropRight}px ${cropBottom}px ${cropLeft}px)`;
+			} else {
+				vid.style.clipPath = "";
+			}
 				holder.style.borderColor = borderColor;
 				holder.style.borderWidth = "0px";
 				holder.style.borderRadius = borderRadius + "px";
@@ -8429,6 +8444,12 @@ function updateMixerRun(e = false) {
 				holder.style.borderWidth = borderOffset + "px";
 				holder.style.borderRadius = borderRadius + "px";
 				vid.style.borderWidth = "0px";
+			// Apply crop via clip-path
+			if (cropTop || cropRight || cropBottom || cropLeft) {
+				vid.style.clipPath = `inset(${cropTop}px ${cropRight}px ${cropBottom}px ${cropLeft}px)`;
+			} else {
+				vid.style.clipPath = "";
+			}
 
 				if ("rotated" in vid && (vid.rotated == 90 || vid.rotated == 270)) {
 					vid.style.width = Math.ceil(wrw - borderOffset * 2) + "px";
@@ -8538,6 +8559,12 @@ function updateMixerRun(e = false) {
 				holder.style.borderWidth = borderOffset + "px";
 				holder.style.borderRadius = borderRadius + "px";
 				vid.style.borderWidth = "0px";
+			// Apply crop via clip-path
+			if (cropTop || cropRight || cropBottom || cropLeft) {
+				vid.style.clipPath = `inset(${cropTop}px ${cropRight}px ${cropBottom}px ${cropLeft}px)`;
+			} else {
+				vid.style.clipPath = "";
+			}
 			}
 
 			if (session.colorVideosBackground) {
@@ -28982,6 +29009,7 @@ function gotDevices(deviceInfos, miconly = false) {
 				label.for = option.name;
 
 				label.innerHTML = " " + (deviceInfo.label || "microphone " + ((audioInputSelect.length || 0) + 1));
+				label.title = "Hold Ctrl to select multiple";
 
 				listele.appendChild(option);
 				listele.appendChild(label);
@@ -29066,6 +29094,10 @@ function gotDevices(deviceInfos, miconly = false) {
 			audioOutputSelect.appendChild(option);
 		}
 
+		// Add ASIO devices if available (Windows only via Electron Capture)
+		// Try sync first, then async for sandbox mode
+		addAsioDevicesToDropdown(audioInputSelect, counter);
+
 		option = document.createElement("option");
 		option.text = getTranslation("disable-video");
 		option.value = "ZZZ";
@@ -29086,12 +29118,15 @@ function gotDevices(deviceInfos, miconly = false) {
 }
 
 function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
+	let constraints = {};
+
 	switch (resolutionFallbackLevel) {
 		case -1:
-			return {};
+			constraints = {};
+			break;
 		case -2:
 			if (isSafariBrowser) {
-				return {
+				constraints = {
 					width: {
 						min: 360,
 						ideal: 3840,
@@ -29104,7 +29139,7 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					}
 				};
 			} else if (Firefox) {
-				return {
+				constraints = {
 					width: {
 						ideal: 3840
 					},
@@ -29113,7 +29148,7 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					}
 				};
 			} else {
-				return {
+				constraints = {
 					width: {
 						min: 720,
 						ideal: 3840,
@@ -29126,9 +29161,10 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					}
 				};
 			}
+			break;
 		case -3:
 			if (isSafariBrowser) {
-				return {
+				constraints = {
 					width: {
 						min: 360,
 						ideal: 2560,
@@ -29141,7 +29177,7 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					}
 				};
 			} else if (Firefox) {
-				return {
+				constraints = {
 					width: {
 						ideal: 2560
 					},
@@ -29150,7 +29186,7 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					}
 				};
 			} else {
-				return {
+				constraints = {
 					width: {
 						min: 720,
 						ideal: 2560,
@@ -29163,9 +29199,10 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					}
 				};
 			}
+			break;
 		case 0:
 			if (isSafariBrowser) {
-				return {
+				constraints = {
 					width: {
 						min: 360,
 						ideal: 1920,
@@ -29178,7 +29215,7 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					}
 				};
 			} else if (Firefox) {
-				return {
+				constraints = {
 					width: {
 						ideal: 1920
 					},
@@ -29187,7 +29224,7 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					}
 				};
 			} else {
-				return {
+				constraints = {
 					width: {
 						min: 720,
 						ideal: 1920,
@@ -29200,9 +29237,10 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					}
 				};
 			}
+			break;
 		case 1:
 			if (isSafariBrowser) {
-				return {
+				constraints = {
 					width: {
 						min: 360,
 						ideal: 1280,
@@ -29215,7 +29253,7 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					}
 				};
 			} else if (Firefox) {
-				return {
+				constraints = {
 					width: {
 						ideal: 1280
 					},
@@ -29224,7 +29262,7 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					}
 				};
 			} else {
-				return {
+				constraints = {
 					width: {
 						min: 720,
 						ideal: 1280,
@@ -29237,9 +29275,10 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					}
 				};
 			}
+			break;
 		case 2:
 			if (isSafariBrowser) {
-				return {
+				constraints = {
 					width: {
 						min: 640
 					},
@@ -29248,7 +29287,7 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					}
 				};
 			} else if (Firefox) {
-				return {
+				constraints = {
 					width: {
 						ideal: 640
 					},
@@ -29257,7 +29296,7 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					}
 				};
 			} else {
-				return {
+				constraints = {
 					width: {
 						min: 240,
 						ideal: 640,
@@ -29270,27 +29309,19 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					}
 				};
 			}
+			break;
 		case 3:
-			if (isSafariBrowser) {
-				return {
-					width: {
-						min: 360,
-						ideal: 1280,
-						max: 1440
-					}
-				};
-			} else {
-				return {
-					width: {
-						min: 360,
-						ideal: 1280,
-						max: 1440
-					}
-				};
-			}
+			constraints = {
+				width: {
+					min: 360,
+					ideal: 1280,
+					max: 1440
+				}
+			};
+			break;
 		case 4:
 			if (isSafariBrowser) {
-				return {
+				constraints = {
 					height: {
 						min: 360,
 						ideal: 720,
@@ -29298,16 +29329,17 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					}
 				};
 			} else {
-				return {
+				constraints = {
 					height: {
 						ideal: 720,
 						max: 960
 					}
 				};
 			}
+			break;
 		case 5:
 			if (isSafariBrowser) {
-				return {
+				constraints = {
 					width: {
 						min: 360,
 						ideal: 640,
@@ -29320,7 +29352,7 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					}
 				};
 			} else {
-				return {
+				constraints = {
 					width: {
 						ideal: 640,
 						max: 1920
@@ -29331,11 +29363,12 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					}
 				}; // same as default, but I didn't want to mess with frameRates until I gave it all a try first
 			}
+			break;
 		case 6:
 			if (isSafariBrowser) {
-				return {}; // iphone users probably don't need to wait any longer, so let them just get to it
+				constraints = {}; // iphone users probably don't need to wait any longer, so let them just get to it
 			} else {
-				return {
+				constraints = {
 					width: {
 						min: 360,
 						ideal: 640,
@@ -29348,8 +29381,9 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					}
 				};
 			}
+			break;
 		case 7:
-			return {
+			constraints = {
 				// If the camera is recording in low-light, it may have a low frameRate. It coudl also be recording at a very high resolution.
 				width: {
 					min: 360,
@@ -29360,9 +29394,9 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 					ideal: 360
 				}
 			};
-
+			break;
 		case 8:
-			return {
+			constraints = {
 				width: {
 					min: 360
 				},
@@ -29371,15 +29405,21 @@ function getUserMediaVideoParams(resolutionFallbackLevel, isSafariBrowser) {
 				},
 				frameRate: 10
 			}; // same as default, but I didn't want to mess with frameRates until I gave it all a try first
+			break;
 		case 9:
-			return {
+			constraints = {
 				frameRate: 0
 			}; // Some Samsung Devices report they can only support a frameRate of 0.
+			break;
 		case 10:
-			return {};
+			constraints = {};
+			break;
 		default:
-			return {};
+			constraints = {};
+			break;
 	}
+
+	return constraints;
 }
 
 function addScreenDevices(device) {
@@ -29604,6 +29644,7 @@ function gotDevices2(deviceInfos) {
 				label.for = option.name;
 
 				label.innerHTML = " " + (deviceInfo.label || "microphone " + ((audioInputSelect.length || 0) + 1));
+				label.title = "Hold Ctrl to select multiple";
 
 				listele.appendChild(option);
 				listele.appendChild(label);
@@ -29703,6 +29744,9 @@ function gotDevices2(deviceInfos) {
 			audioOutputSelect.appendChild(option);
 		}
 
+		// Add ASIO devices if available (Windows only via Electron Capture)
+		// Try sync first, then async for sandbox mode
+		addAsioDevicesToDropdown(audioInputSelect, counter);
 		if (videoSelect.childNodes.length <= 1) {
 			getById("flipcamerabutton").style.display = "none"; // don't show the camera cycle button
 			getById("flipcamerabutton").dataset.maxndex = videoSelect.childNodes.length;
@@ -30024,8 +30068,9 @@ function refreshVideoDevice(UUID = false) {
 		return;
 	}
 	log("refreshing video device..");
-	activatedPreview = false;
-	grabVideo(session.quality, "videosource", "select#videoSource3");
+			activatedPreview = false;
+			grabVideo(session.quality, "videosource", "select#videoSource3");
+
 }
 
 function directRefreshVideo(ele) {
@@ -30110,6 +30155,14 @@ function meshRestartWhip(uuid) {
 	data.UUID = uuid;
 	session.sendRequest(data, uuid);
 	log("Sent restartWhip to " + uuid);
+}
+
+function restartWhipDirector(ele) {
+	var UUID = ele.dataset.UUID;
+	if (UUID && session.rpcs[UUID]) {
+		meshRestartWhip(UUID);
+		warnUser("WHIP restart command sent");
+	}
 }
 
 // ============================================
@@ -32943,6 +32996,380 @@ function ensureElectronAppAudioInstance() {
 	return electronAppAudioInstance;
 }
 
+// ASIO Audio Capture Support (Windows only via Electron Capture)
+var electronAsioSupportChecked = false;
+var electronAsioSupported = false;
+var electronAsioDevicesCache = null;
+var activeAsioStreams = new Map();
+
+function electronSupportsAsio() {
+	if (electronAsioSupportChecked) {
+		return electronAsioSupported;
+	}
+	electronAsioSupportChecked = true;
+	try {
+		if (typeof window !== "undefined" && window.electronApi) {
+			// Sync API (works with --node flag)
+			if (typeof window.electronApi.isAsioAvailable === "function") {
+				try {
+					electronAsioSupported = !!window.electronApi.isAsioAvailable();
+				} catch (e) {
+					// Sync may fail in sandbox mode, will use async
+				}
+			}
+		}
+	} catch (err) {
+		console.warn("Failed to determine ASIO support:", err);
+		electronAsioSupported = false;
+	}
+	return electronAsioSupported;
+}
+
+// Async version for sandbox mode
+async function electronSupportsAsioAsync() {
+	if (electronAsioSupportChecked && electronAsioSupported) {
+		return electronAsioSupported;
+	}
+	try {
+		if (typeof window !== "undefined" && window.electronApi) {
+			// Try async first (works in sandbox mode)
+			if (typeof window.electronApi.isAsioAvailableAsync === "function") {
+				electronAsioSupported = !!(await window.electronApi.isAsioAvailableAsync());
+				electronAsioSupportChecked = true;
+				return electronAsioSupported;
+			}
+			// Fall back to sync (works with --node flag)
+			if (typeof window.electronApi.isAsioAvailable === "function") {
+				electronAsioSupported = !!window.electronApi.isAsioAvailable();
+				electronAsioSupportChecked = true;
+				return electronAsioSupported;
+			}
+		}
+	} catch (err) {
+		console.warn("Failed to determine ASIO support:", err);
+	}
+	return false;
+}
+
+function getAsioDevices() {
+	if (!electronSupportsAsio()) return [];
+	if (electronAsioDevicesCache !== null) {
+		return electronAsioDevicesCache;
+	}
+	try {
+		electronAsioDevicesCache = window.electronApi.getAsioDevices() || [];
+		return electronAsioDevicesCache;
+	} catch (err) {
+		console.warn("Failed to get ASIO devices:", err);
+		electronAsioDevicesCache = [];
+		return [];
+	}
+}
+
+// Async version for sandbox mode
+async function getAsioDevicesAsync() {
+	if (electronAsioDevicesCache !== null) {
+		return electronAsioDevicesCache;
+	}
+	try {
+		if (typeof window !== "undefined" && window.electronApi) {
+			// Try async first (works in sandbox mode)
+			if (typeof window.electronApi.getAsioDevicesAsync === "function") {
+				electronAsioDevicesCache = await window.electronApi.getAsioDevicesAsync() || [];
+				return electronAsioDevicesCache;
+			}
+			// Fall back to sync (works with --node flag)
+			if (typeof window.electronApi.getAsioDevices === "function") {
+				electronAsioDevicesCache = window.electronApi.getAsioDevices() || [];
+				return electronAsioDevicesCache;
+			}
+		}
+	} catch (err) {
+		console.warn("Failed to get ASIO devices:", err);
+	}
+	electronAsioDevicesCache = [];
+	return [];
+}
+
+function refreshAsioDevices() {
+	electronAsioDevicesCache = null;
+	return getAsioDevices();
+}
+
+async function refreshAsioDevicesAsync() {
+	electronAsioDevicesCache = null;
+	return await getAsioDevicesAsync();
+}
+
+async function createAsioMediaStream(deviceIndex, options = {}) {
+	// Check ASIO support (try async first for sandbox mode)
+	const asioAvailable = await electronSupportsAsioAsync();
+	if (!asioAvailable) {
+		throw new Error("ASIO not available");
+	}
+
+	const sampleRate = options.sampleRate || 48000;
+	const channels = options.channels || 2;
+	const bufferSize = options.bufferSize || 256;
+
+	const audioContext = new (window.AudioContext || window.webkitAudioContext)({
+		sampleRate: sampleRate
+	});
+
+	const destination = audioContext.createMediaStreamDestination();
+
+	let asioStream;
+	let audioDataUnsubscribe = null;
+	let errorUnsubscribe = null;
+	let useAsyncMode = false;
+
+	// Try async API first (works in sandbox mode)
+	if (typeof window.electronApi.createAsioStreamAsync === "function") {
+		try {
+			asioStream = await window.electronApi.createAsioStreamAsync({
+				deviceIndex: deviceIndex,
+				sampleRate: sampleRate,
+				channels: channels,
+				framesPerBuffer: bufferSize
+			});
+			useAsyncMode = true;
+		} catch (e) {
+			console.warn("createAsioStreamAsync failed, trying sync:", e);
+		}
+	}
+
+	// Fall back to sync API (works with --node flag)
+	if (!asioStream && typeof window.electronApi.createAsioStream === "function") {
+		asioStream = window.electronApi.createAsioStream({
+			deviceIndex: deviceIndex,
+			sampleRate: sampleRate,
+			channels: channels,
+			framesPerBuffer: bufferSize
+		});
+	}
+
+	if (!asioStream) {
+		throw new Error("Failed to create ASIO stream");
+	}
+
+	let audioBuffer = [];
+	const minBufferSize = bufferSize * 4;
+
+	function processAudioData(audioData) {
+		try {
+			const float32Data = new Float32Array(audioData.buffer || audioData);
+			audioBuffer.push(...float32Data);
+
+			while (audioBuffer.length >= minBufferSize) {
+				const chunk = audioBuffer.splice(0, minBufferSize);
+				const buffer = audioContext.createBuffer(channels, chunk.length / channels, sampleRate);
+
+				for (let ch = 0; ch < channels; ch++) {
+					const channelData = buffer.getChannelData(ch);
+					for (let i = 0; i < channelData.length; i++) {
+						channelData[i] = chunk[i * channels + ch] || 0;
+					}
+				}
+
+				const source = audioContext.createBufferSource();
+				source.buffer = buffer;
+				source.connect(destination);
+				source.start();
+			}
+		} catch (e) {
+			console.warn("ASIO audio processing error:", e);
+		}
+	}
+
+	if (useAsyncMode) {
+		// Subscribe to audio data via IPC (sandbox mode)
+		if (typeof window.electronApi.onAsioAudioData === "function") {
+			audioDataUnsubscribe = window.electronApi.onAsioAudioData((streamId, buffers) => {
+				if (streamId === asioStream.streamId && buffers && buffers.length > 0) {
+					// Interleave channels into single buffer
+					const totalSamples = buffers[0].length * buffers.length;
+					const interleaved = new Float32Array(totalSamples);
+					for (let i = 0; i < buffers[0].length; i++) {
+						for (let ch = 0; ch < buffers.length; ch++) {
+							interleaved[i * buffers.length + ch] = buffers[ch][i];
+						}
+					}
+					processAudioData(interleaved);
+				}
+			});
+		}
+		if (typeof window.electronApi.onAsioError === "function") {
+			errorUnsubscribe = window.electronApi.onAsioError((streamId, error) => {
+				if (streamId === asioStream.streamId) {
+					console.error("ASIO stream error:", error);
+				}
+			});
+		}
+		await asioStream.start();
+	} else {
+		// Use sync event handlers (--node mode)
+		asioStream.on('data', processAudioData);
+		asioStream.on('error', (err) => {
+			console.error("ASIO stream error:", err);
+		});
+		asioStream.start();
+	}
+
+	const streamId = "asio_" + deviceIndex + "_" + Date.now();
+	activeAsioStreams.set(streamId, {
+		asioStream: asioStream,
+		audioContext: audioContext,
+		mediaStream: destination.stream,
+		audioDataUnsubscribe: audioDataUnsubscribe,
+		errorUnsubscribe: errorUnsubscribe,
+		useAsyncMode: useAsyncMode
+	});
+
+	destination.stream.getAudioTracks().forEach(track => {
+		track.addEventListener('ended', () => {
+			stopAsioStream(streamId);
+		});
+	});
+
+	destination.stream._asioStreamId = streamId;
+	return destination.stream;
+}
+
+function stopAsioStream(streamId) {
+	const streamData = activeAsioStreams.get(streamId);
+	if (streamData) {
+		try {
+			// Unsubscribe from IPC events (async mode)
+			if (streamData.audioDataUnsubscribe) {
+				streamData.audioDataUnsubscribe();
+			}
+			if (streamData.errorUnsubscribe) {
+				streamData.errorUnsubscribe();
+			}
+			// Stop the ASIO stream
+			if (streamData.asioStream) {
+				if (streamData.useAsyncMode && streamData.asioStream.close) {
+					streamData.asioStream.close();
+				} else if (streamData.asioStream.stop) {
+					streamData.asioStream.stop();
+				}
+			}
+			if (streamData.audioContext && streamData.audioContext.state !== 'closed') {
+				streamData.audioContext.close();
+			}
+		} catch (e) {
+			console.warn("Error stopping ASIO stream:", e);
+		}
+		activeAsioStreams.delete(streamId);
+	}
+}
+
+function stopAllAsioStreams() {
+	activeAsioStreams.forEach((_, streamId) => {
+		stopAsioStream(streamId);
+	});
+}
+
+// Add ASIO devices to audio input dropdown (handles both sync and async modes)
+function addAsioDevicesToDropdown(audioInputSelect, startCounter) {
+	if (typeof window === "undefined" || !window.electronApi) return;
+
+	var counter = startCounter || 0;
+
+	function appendAsioDevices(asioDevices) {
+		if (!asioDevices || asioDevices.length === 0) return;
+
+		asioDevices.forEach(function(device) {
+			// Check if already added
+			if (audioInputSelect.querySelector('input[value="asio:' + device.index + '"]')) return;
+
+			counter++;
+			var listele = document.createElement("li");
+			listele.style.display = "none";
+
+			var option = document.createElement("input");
+			option.type = "checkbox";
+			option.style.display = "none";
+			option.value = "asio:" + device.index;
+			option.name = "multiselecta" + counter;
+			option.id = "multiselecta" + counter;
+			option.dataset.label = device.name;
+			option.dataset.type = "asio";
+
+			var label = document.createElement("label");
+			label.for = option.name;
+			label.innerHTML = " <span style='color:#6f6;'>ASIO</span> " + device.name + " <span style='color:#888;font-size:0.85em;'>(" + device.maxInputChannels + "ch)</span>";
+			label.title = "Hold Ctrl to select multiple";
+
+			listele.appendChild(option);
+			listele.appendChild(label);
+			audioInputSelect.appendChild(listele);
+
+			option.onchange = function (event) {
+				log("ASIO device selected: " + event.currentTarget.value);
+				if (!CtrlPressed) {
+					document.querySelectorAll("#audioSource3 input[type='checkbox']").forEach(function (item) {
+						if (event.currentTarget.value !== item.value) {
+							item.checked = false;
+							if (item.dataset.type == "screen") {
+								item.parentElement.parentElement.removeChild(item.parentElement);
+							}
+							while (SelectedAudioInputDevices.indexOf(item.value) > -1) {
+								SelectedAudioInputDevices.splice(SelectedAudioInputDevices.indexOf(item.value), 1);
+							}
+						} else {
+							item.checked = true;
+							if (SelectedAudioInputDevices.indexOf(event.currentTarget.value) == -1) {
+								if (SelectedAudioInputDevices.length && SelectedAudioInputDevices.includes("ZZZ")) {
+									SelectedAudioInputDevices = [];
+								}
+								SelectedAudioInputDevices.push(event.currentTarget.value);
+							}
+						}
+					});
+				} else {
+					if (SelectedAudioInputDevices.indexOf(event.currentTarget.value) == -1) {
+						if (SelectedAudioInputDevices.length && SelectedAudioInputDevices.includes("ZZZ")) {
+							SelectedAudioInputDevices = [];
+						}
+						SelectedAudioInputDevices.push(event.currentTarget.value);
+					}
+					getById("audioSourceNoAudio2").checked = false;
+				}
+				saveSettings();
+			};
+		});
+
+		if (asioDevices.length > 0) {
+			log("ASIO devices added to dropdown:", asioDevices.map(function(d) { return d.name; }));
+		}
+	}
+
+	// Try sync first (works with --node flag)
+	try {
+		if (electronSupportsAsio()) {
+			var asioDevices = getAsioDevices();
+			if (asioDevices && asioDevices.length > 0) {
+				appendAsioDevices(asioDevices);
+				return; // Got devices via sync, done
+			}
+		}
+	} catch (e) {
+		// Sync failed, will try async
+	}
+
+	// Try async (works in sandbox mode)
+	electronSupportsAsioAsync().then(function(supported) {
+		if (!supported) return;
+		getAsioDevicesAsync().then(function(asioDevices) {
+			appendAsioDevices(asioDevices);
+		}).catch(function(e) {
+			console.warn("Failed to get ASIO devices async:", e);
+		});
+	}).catch(function(e) {
+		console.warn("Failed to check ASIO support async:", e);
+	});
+}
 function extractElectronAudioTargetFromSource(source) {
 	if (!source || !source.id) {
 		return null;
@@ -34018,7 +34445,26 @@ function changeTRB(ele) {
 }
 
 function sendMediaDevices(UUID) {
-	enumerateDevices().then(function (deviceInfos) {
+	enumerateDevices().then(async function (deviceInfos) {
+		// Add ASIO devices if available (Windows only via Electron Capture)
+		try {
+			var asioAvailable = await electronSupportsAsioAsync();
+			if (asioAvailable) {
+				var asioDevices = await getAsioDevicesAsync();
+				if (asioDevices && asioDevices.length > 0) {
+					asioDevices.forEach(function(device) {
+						deviceInfos.push({
+							deviceId: "asio:" + device.index,
+							kind: "audioinput",
+							label: "ASIO: " + device.name + " (" + device.maxInputChannels + "ch)",
+							groupId: "asio"
+						});
+					});
+				}
+			}
+		} catch (e) {
+			// ASIO not available, continue with standard devices
+		}
 		var data = {};
 		data.UUID = UUID;
 		data.mediaDevices = deviceInfos;
@@ -34546,7 +34992,18 @@ async function grabVideo(quality = 0, eleName = "previewWebcam", selector = "sel
 			constraints.video.deviceId = {
 				exact: videoSelect.value
 			}; // Firefox is a dick. Needs it to be exact.
+			const selectedLabel = videoSelect.options[videoSelect.selectedIndex] ? videoSelect.options[videoSelect.selectedIndex].text : "";
+			const isObsCam = selectedLabel.startsWith("OBS-Camera") || selectedLabel.startsWith("OBS Virtual Camera") || selectedLabel.startsWith("Streamlabs ");
+			if (isObsCam && !session.frameRate && session.maxframeRate == false) {
+				// Firefox + OBS Virtual Camera can fail or stick on device switches unless a 30fps cap is applied.
+				// Scope the cap to OBS only so other cameras (eg. Cam Link) retain their native fps/resolution behavior.
+				constraints.video.frameRate = {
+					ideal: 30,
+					max: 30
+				};
+			}
 		} else if (videoSelect.options[videoSelect.selectedIndex].text.includes("NDI Video")) {
+
 			// NDI does not like "EXACT"
 			constraints.video.deviceId = videoSelect.value; // NDI is fucked up
 		} else {
@@ -46698,13 +47155,12 @@ function pauseVideo(videoEle, update = true) {
 				}
 			}
 		} else if (link.getAttribute("data-action") === "RemoteReload") {
-			if (session.rpcs[taskItemInContext.dataset.UUID] && session.rpcs[taskItemInContext.dataset.UUID].stats.info && "remote" in session.rpcs[taskItemInContext.dataset.UUID].stats.info && session.rpcs[taskItemInContext.dataset.UUID].stats.info.remote) {
+			// Remote Reload Page - basic director privilege, no &remote required
+			if (session.rpcs[taskItemInContext.dataset.UUID]) {
 				var confirmReload = confirm(getTranslation("confirm-reload-user"));
 				if (confirmReload) {
 					var msg = {};
 					msg.reload = true;
-					msg.remote = session.remote;
-					msg = await session.encodeRemote(msg);
 					session.sendRequest(msg, taskItemInContext.dataset.UUID);
 					pokeIframeAPI("reload", "remote", taskItemInContext.dataset.UUID);
 				}
@@ -46913,6 +47369,15 @@ function pauseVideo(videoEle, update = true) {
 				}
 			} else if (items[i].getAttribute("data-action") === "RecordWindow") {
 				if (taskItemInContext.classList.contains("publish")) {
+					items[i].parentNode.classList.remove("hidden");
+				} else {
+					items[i].parentNode.classList.add("hidden");
+				}
+			} else if (items[i].getAttribute("data-action") === "RemoteReload") {
+				// Remote Reload Page - show for any valid RPC connection (basic director privilege)
+				if (taskItemInContext.id == "videosource" || taskItemInContext.id == "previewWebcam") {
+					items[i].parentNode.classList.add("hidden");
+				} else if (session.rpcs[taskItemInContext.dataset.UUID]) {
 					items[i].parentNode.classList.remove("hidden");
 				} else {
 					items[i].parentNode.classList.add("hidden");

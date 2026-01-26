@@ -1840,6 +1840,10 @@
 							<i class="las la-compact-disc"></i>
 							<span data-translate="record-remote"> Record Remote</span>
 						</button>
+						<button data-action-type="restart-whip" class="hidden" title="Restart WHIP publishing connection (e.g., to Meshcast/MediaMTX)" onclick="restartWhipDirector(this)">
+							<i class="las la-broadcast-tower"></i>
+							<span data-translate="restart-whip">Restart WHIP</span>
+						</button>
 						<button data-action-type="recorder-google-drive-remote" title="The Remote Guest will record their local stream and upload it to your Google Drive. *experimental*" onclick="requestGoogleDriveRecord(this, null, null, event)">
 							<i class="las la-compact-disc"></i>
 							<span data-translate="google-drive-record"> Google Drive</span>
@@ -2571,13 +2575,13 @@
 								<span data-translate="remote-hangup-connection">Remote Hang-up</span>
 							</a>
 						</li>
-						<li class="context-menu__item" id="RemoteReloadContextOption">
-							<a href="#" class="context-menu__link action" data-action="RemoteReload">
-								<i class="las la-sync"></i>
-								<span data-translate="remote-reload-connection">Remote Reload Page</span>
-							</a>
-						</li>
 					</ul>
+				</li>
+				<li class="context-menu__item hidden" id="RemoteReloadContextOption">
+					<a href="#" class="context-menu__link action" data-action="RemoteReload">
+						<i class="las la-sync"></i>
+						<span data-translate="remote-reload-connection">Remote Reload Page</span>
+					</a>
 				</li>
 				<li class="context-menu__item">
 					<a href="#" class="context-menu__link" data-action="ChangeBuffer">
@@ -3252,8 +3256,8 @@
 			}
 		</script>
 
-		<script type="text/javascript" crossorigin="anonymous" id="lib-js" src="./lib.js?ver=1376"></script>
-		<script type="text/javascript" crossorigin="anonymous" id="main-js" src="./main.js?ver=1040"></script>
+		<script type="text/javascript" crossorigin="anonymous" id="lib-js" src="./lib.js?ver=1377"></script>
+		<script type="text/javascript" crossorigin="anonymous" id="main-js" src="./main.js?ver=1041"></script>
 		<script type="module" src="./podcast/bootstrap.js"></script>
 		
 	</body>

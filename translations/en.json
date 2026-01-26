@@ -92,6 +92,7 @@
     "create-timer": "Create Timer",
     "record-local": " Record Local",
     "record-remote": " Record Remote",
+    "restart-whip": "Restart WHIP",
     "google-drive-record": " Google Drive",
     "change-params": "URL Params",
     "change-url": "Change URL",

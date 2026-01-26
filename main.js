@@ -417,6 +417,32 @@ async function main() {
 		}
 	}
 
+	// Check for ASIO support and log available devices (Windows only via Electron Capture)
+	// Supports both sync (--node flag) and async (sandbox mode)
+	try {
+		if (window.electronApi) {
+			// Try async first (works in sandbox mode)
+			if (typeof window.electronApi.isAsioAvailableAsync === "function") {
+				window.electronApi.isAsioAvailableAsync().then(function(available) {
+					if (!available) return;
+					window.electronApi.getAsioDevicesAsync().then(function(asioDevices) {
+						if (asioDevices && asioDevices.length > 0) {
+							console.log("ASIO devices available:", asioDevices.map(function(d) { return d.name; }));
+						}
+					}).catch(function(e) { console.warn("ASIO devices check failed:", e); });
+				}).catch(function(e) { console.warn("ASIO availability check failed:", e); });
+			}
+			// Fallback to sync (works with --node flag)
+			else if (typeof window.electronApi.isAsioAvailable === "function" && window.electronApi.isAsioAvailable()) {
+				var asioDevices = window.electronApi.getAsioDevices();
+				if (asioDevices && asioDevices.length > 0) {
+					console.log("ASIO devices available:", asioDevices.map(function(d) { return d.name; }));
+				}
+			}
+		}
+	} catch (e) {
+		console.warn("ASIO detection check failed:", e);
+	}
 	if (urlParams.has("retrytimeout")) {
 		session.retryTimeout = parseInt(urlParams.get("retrytimeout")) || 5000;
 		if (session.retryTimeout < 5000) {
@@ -3106,6 +3132,67 @@ async function main() {
 		document.documentElement.style.setProperty("--discord-grey-1a", "#0000");
 		getById("directorLinksButton").style.color = "black";
 		getById("main").style.overflow = "hidden";
+	}
+
+	// Low-latency mode: optimizes all settings for minimum latency
+	// These are defaults that can be overridden by other URL parameters
+	if (urlParams.has("lowlatency") || urlParams.has("ll") || urlParams.has("ultralow")) {
+		log("LOW LATENCY MODE ENABLED");
+
+		// Audio processing off (adds ~30-100ms latency)
+		session.echoCancellation = false;
+		session.autoGainControl = false;
+		session.noiseSuppression = false;
+
+		// Minimum packet time (10ms vs default 20ms)
+		if (session.ptime === false) {
+			session.ptime = 10;
+		}
+		if (session.minptime === false) {
+			session.minptime = 10;
+		}
+		if (session.maxptime === false) {
+			session.maxptime = 20; // don't let it grow too large
+		}
+
+		// Disable FEC (adds bandwidth overhead and ~latency for recovery)
+		if (!urlParams.has("fec")) {
+			session.noFEC = true;
+		}
+
+		// CBR for predictable timing (better for real-time than VBR)
+		if (!urlParams.has("vbr") && session.cbr !== 0) {
+			session.cbr = 1;
+		}
+
+		// Minimum jitter buffer on receiver
+		if (session.buffer === false && !urlParams.has("buffer")) {
+			session.buffer = 0;
+		}
+		if (session.audioBuffer === false && !urlParams.has("audiobuffer")) {
+			session.audioBuffer = 0;
+		}
+
+		// Disable A/V sync compensation (adds delay)
+		if (session.sync === false && !urlParams.has("sync")) {
+			session.sync = 0;
+		}
+
+		// Disable WebAudio processing pipeline (reduces CPU and latency)
+		if (!urlParams.has("ap")) {
+			session.disableWebAudio = true;
+			session.disableViewerWebAudioPipeline = true;
+			session.audioEffects = false;
+			session.audioMeterGuest = false;
+			if (session.noisegate === null) {
+				session.noisegate = false;
+			}
+		}
+
+		// Lower audio latency hint for AudioContext
+		if (session.audioLatency === false && !urlParams.has("latency")) {
+			session.audioLatency = 10; // 10ms latency hint
+		}
 	}
 
 	if (urlParams.has("stereo") || urlParams.has("s") || urlParams.has("proaudio")) {

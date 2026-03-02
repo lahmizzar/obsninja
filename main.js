@@ -6939,6 +6939,9 @@ async function main() {
 		session.approval_popup = true;
 		try { log("[flags] &approvepopup detected; approval_popup=true"); } catch (e) {}
 	}
+	if (urlParams.has("requireapproval")) {
+		session.requireServerApproval = true;
+	}
 	// do not reference stream ID before this point, as it might change after this point.
 
 	if (urlParams.has("push") || urlParams.has("id") || urlParams.has("permaid") || (session.sticky && session.decrypted)) {

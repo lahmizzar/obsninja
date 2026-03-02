@@ -434,6 +434,14 @@
 						<input id="senderNoPreviewToggle" type="checkbox" checked />
 						Include &nopreview in sender template
 					</label>
+					<label class="checkline">
+						<input id="senderNoVideoInToggle" type="checkbox" />
+						Sender: No incoming video (&novideo)
+					</label>
+					<label class="checkline">
+						<input id="talkbackToggle" type="checkbox" />
+						Enable Controller Talkback to Sender
+					</label>
 				</div>
 				<div class="row" style="margin-top:10px;">
 					<button id="connectBtn" class="primary">Connect Viewer</button>
@@ -507,7 +515,11 @@
 						</label>
 						<label style="display:flex;align-items:center;gap:8px;">
 							<input id="panInvertToggle" type="checkbox" />
-							Invert pan left/right
+							Invert pan
+						</label>
+						<label style="display:flex;align-items:center;gap:8px;">
+							<input id="tiltInvertToggle" type="checkbox" />
+							Invert tilt
 						</label>
 					</div>
 				</div>
@@ -585,6 +597,9 @@
 			</div>
 
 				<div class="panel preview-panel" id="previewPanel">
+					<div class="row" style="margin-bottom:8px;">
+						<button id="previewFullscreenBtn">Fullscreen Preview</button>
+					</div>
 					<div class="preview-stage" id="previewStage">
 						<div id="previewTransform" class="preview-transform">
 							<iframe id="viewerFrame" allow="autoplay;camera;microphone;fullscreen;picture-in-picture;display-capture;"></iframe>
@@ -598,10 +613,10 @@
 				<details>
 					<summary>Keyboard shortcuts</summary>
 					<p class="small">
-						Arrows = pan/tilt, +/- = zoom, Ctrl/Cmd + +/- = focus, Numpad 1/2/3 = preset recall, Numpad 0 = home.
+						Arrows = pan/tilt, +/- = zoom, Ctrl/Cmd + +/- = focus, Numpad 1/2/3 = preset recall, 1/2/3 = preset recall, Numpad 0 / 0 = home.
 						Hold Alt for fine steps. P = toggle preview drag/wheel overlay. M = mirror preview, R / Shift+R = rotate preview, F = stage mode toggle.
 						Ctrl/Cmd+M = mirror remote, Ctrl/Cmd+R = rotate remote, Ctrl/Cmd+Shift+R = reset remote rotation.
-						Use "Invert pan left/right" if your camera responds opposite to expected direction.
+						Use "Invert pan" or "Invert tilt" if your camera responds opposite to expected direction.
 					</p>
 				</details>
 			</section>
@@ -634,7 +649,9 @@
 					accY: 0
 				},
 				remoteMirror: false,
-				copyButtonTimer: null
+				copyButtonTimer: null,
+				talkbackID: Math.random().toString(36).substring(2, 10),
+				talkbackActive: false
 			};
 
 			var refs = {
@@ -644,17 +661,22 @@
 				embedPreset: document.getElementById("embedPreset"),
 				muteViewerAudioToggle: document.getElementById("muteViewerAudioToggle"),
 				senderNoPreviewToggle: document.getElementById("senderNoPreviewToggle"),
+				senderNoVideoInToggle: document.getElementById("senderNoVideoInToggle"),
+				talkbackToggle: document.getElementById("talkbackToggle"),
 				copySenderUrlBtn: document.getElementById("copySenderUrlBtn"),
 				senderTemplateLine: document.getElementById("senderTemplateLine"),
 				baseStepInput: document.getElementById("baseStepInput"),
 				repeatInput: document.getElementById("repeatInput"),
 				fineToggle: document.getElementById("fineToggle"),
 				panInvertToggle: document.getElementById("panInvertToggle"),
+				tiltInvertToggle: document.getElementById("tiltInvertToggle"),
 				layoutSection: document.getElementById("layoutSection"),
 				controlsColumn: document.getElementById("controlsColumn"),
 				toggleControlsBtn: document.getElementById("toggleControlsBtn"),
 				stageModeBtn: document.getElementById("stageModeBtn"),
 				fullscreenBtn: document.getElementById("fullscreenBtn"),
+				previewFullscreenBtn: document.getElementById("previewFullscreenBtn"),
+				previewStage: document.getElementById("previewStage"),
 				mirrorPreviewBtn: document.getElementById("mirrorPreviewBtn"),
 				rotatePreviewBtn: document.getElementById("rotatePreviewBtn"),
 				rotatePreviewBackBtn: document.getElementById("rotatePreviewBackBtn"),
@@ -880,6 +902,16 @@
 				return direction;
 			}
 
+			function applyTiltDirection(direction) {
+				if (!direction) {
+					return direction;
+				}
+				if (refs.tiltInvertToggle && refs.tiltInvertToggle.checked) {
+					return -direction;
+				}
+				return direction;
+			}
+
 			function normalizeTarget() {
 				var target = refs.targetInput.value.trim();
 				if (target) {
@@ -929,6 +961,12 @@
 				}
 				if (refs.senderNoPreviewToggle.checked) {
 					senderUrl.searchParams.set("nopreview", "");
+				}
+				if (refs.senderNoVideoInToggle.checked) {
+					senderUrl.searchParams.set("novideo", "");
+				}
+				if (refs.talkbackToggle.checked) {
+					senderUrl.searchParams.set("view", state.talkbackID);
 				}
 				return senderUrl.toString();
 			}
@@ -1112,17 +1150,22 @@
 			}
 
 			function sendRelative(control, direction, event) {
-				var mappedDirection = control === "pan" ? applyPanDirection(direction) : direction;
+				var mappedDirection = control === "pan" ? applyPanDirection(direction) : (control === "tilt" ? applyTiltDirection(direction) : direction);
 				var step = getStep(event) * mappedDirection;
 				if (control === "pan") {
 					sendTargetAction("ptzPan", step);
+					refs.panAbs.value = Math.max(-1, Math.min(1, parseFloat(refs.panAbs.value) + step));
 				} else if (control === "tilt") {
 					sendTargetAction("ptzTilt", step);
+					refs.tiltAbs.value = Math.max(-1, Math.min(1, parseFloat(refs.tiltAbs.value) + step));
 				} else if (control === "zoom") {
 					sendTargetAction("ptzZoom", step);
+					refs.zoomAbs.value = Math.max(0, Math.min(1, parseFloat(refs.zoomAbs.value) + step));
 				} else if (control === "focus") {
 					sendTargetAction("ptzFocus", step);
+					refs.focusAbs.value = Math.max(0, Math.min(1, parseFloat(refs.focusAbs.value) + step));
 				}
+				updateAbsLabels();
 			}
 
 			function updateAbsLabels() {
@@ -1181,7 +1224,38 @@
 					return;
 				}
 				refs.viewerFrame.src = url;
-				setStatus("Connecting iframe viewer...");
+
+				// Try to unlock audio
+				try {
+					var audio = new Audio();
+					audio.muted = true;
+					audio.play().then(function() {
+						audio.pause();
+					}).catch(function(){});
+				} catch(e){}
+
+				if (refs.talkbackToggle.checked) {
+					var talkbackUrl = new URL("/", window.location.origin);
+					talkbackUrl.searchParams.set("push", state.talkbackID);
+					talkbackUrl.searchParams.set("novideo", "");
+					talkbackUrl.searchParams.set("autoplay", "");
+					talkbackUrl.searchParams.set("cleanoutput", "");
+					
+					var tb = document.getElementById("talkbackFrame");
+					if (!tb) {
+						tb = document.createElement("iframe");
+						tb.id = "talkbackFrame";
+						tb.style.display = "none";
+						tb.allow = "autoplay;microphone;";
+						document.body.appendChild(tb);
+					}
+					tb.src = talkbackUrl.toString();
+					setStatus("Connecting viewer and talkback...");
+				} else {
+					var tb = document.getElementById("talkbackFrame");
+					if (tb) tb.src = "about:blank";
+					setStatus("Connecting iframe viewer...");
+				}
 			}
 
 			function clearPointerHold() {
@@ -1256,14 +1330,15 @@
 					return;
 				}
 
-				if (code === "Numpad0") {
+				if (code === "Numpad0" || key === "0") {
 					event.preventDefault();
 					recallHome();
 					return;
 				}
-				if (code === "Numpad1" || code === "Numpad2" || code === "Numpad3") {
+				if (code === "Numpad1" || key === "1" || code === "Numpad2" || key === "2" || code === "Numpad3" || key === "3") {
 					event.preventDefault();
-					var slot = code.replace("Numpad", "");
+					var slot = key;
+					if (code.startsWith("Numpad")) slot = code.replace("Numpad", "");
 					var presets = loadPresets();
 					if (presets[slot]) {
 						applyAbsoluteState(presets[slot]);
@@ -1354,12 +1429,12 @@
 					state.drag.accY += dy;
 
 					while (Math.abs(state.drag.accX) >= threshold) {
-						sendRelative("pan", state.drag.accX > 0 ? 1 : -1, event);
+						sendRelative("pan", state.drag.accX > 0 ? -1 : 1, event);
 						state.drag.accX += state.drag.accX > 0 ? -threshold : threshold;
 					}
 					while (Math.abs(state.drag.accY) >= threshold) {
-						sendRelative("tilt", state.drag.accY < 0 ? 1 : -1, event);
-						state.drag.accY += state.drag.accY < 0 ? threshold : -threshold;
+						sendRelative("tilt", state.drag.accY > 0 ? 1 : -1, event);
+						state.drag.accY += state.drag.accY > 0 ? -threshold : threshold;
 					}
 				});
 
@@ -1415,6 +1490,13 @@
 					if (refs.viewerFrame.src) {
 						refs.viewerFrame.src = refs.viewerFrame.src;
 						setStatus("Viewer reloading...");
+						try {
+							var audio = new Audio();
+							audio.muted = true;
+							audio.play().then(function() {
+								audio.pause();
+							}).catch(function(){});
+						} catch(e){}
 					}
 				});
 				refs.togglePreviewBtn.addEventListener("click", function () {
@@ -1428,6 +1510,15 @@
 					setStageMode(!state.stageMode);
 				});
 				refs.fullscreenBtn.addEventListener("click", toggleBrowserFullscreen);
+				refs.previewFullscreenBtn.addEventListener("click", function () {
+					if (refs.previewStage.requestFullscreen) {
+						refs.previewStage.requestFullscreen();
+					} else if (refs.previewStage.webkitRequestFullscreen) {
+						refs.previewStage.webkitRequestFullscreen();
+					} else if (refs.previewStage.msRequestFullscreen) {
+						refs.previewStage.msRequestFullscreen();
+					}
+				});
 				refs.copySenderUrlBtn.addEventListener("click", function () {
 					var senderTemplate = buildSenderTemplateUrl();
 					if (!senderTemplate) {
@@ -1534,11 +1625,16 @@
 				refs.viewInput.addEventListener("input", refreshSenderTemplate);
 				refs.remoteInput.addEventListener("input", refreshSenderTemplate);
 				refs.senderNoPreviewToggle.addEventListener("change", refreshSenderTemplate);
+				refs.senderNoVideoInToggle.addEventListener("change", refreshSenderTemplate);
+				refs.talkbackToggle.addEventListener("change", refreshSenderTemplate);
 				refs.muteViewerAudioToggle.addEventListener("change", function () {
 					setStatus(refs.muteViewerAudioToggle.checked ? "Embed audio will be muted in light mode." : "Embed audio stays enabled in light mode.");
 				});
 				refs.panInvertToggle.addEventListener("change", function () {
 					setStatus(refs.panInvertToggle.checked ? "Pan direction set to inverted." : "Pan direction set to normal.");
+				});
+				refs.tiltInvertToggle.addEventListener("change", function () {
+					setStatus(refs.tiltInvertToggle.checked ? "Tilt direction set to inverted." : "Tilt direction set to normal.");
 				});
 
 				window.addEventListener("blur", function () {
@@ -1564,6 +1660,12 @@
 				if (panInvert === null) {
 					panInvert = params.get("invertpan");
 				}
+				var tiltInvert = params.get("tiltinvert");
+				if (tiltInvert === null) {
+					tiltInvert = params.get("inverttilt");
+				}
+				var talkback = params.get("talkback");
+				var novideo = params.get("novideo");
 				var mirrorPreview = params.get("mirrorpreview");
 				var rotatePreview = params.get("rotatepreview");
 				var overlayAutoHide = params.get("overlayautohide");
@@ -1608,6 +1710,15 @@
 				}
 				if (panInvert !== null) {
 					refs.panInvertToggle.checked = !(panInvert === "0" || panInvert === "false" || panInvert === "off");
+				}
+				if (tiltInvert !== null) {
+					refs.tiltInvertToggle.checked = !(tiltInvert === "0" || tiltInvert === "false" || tiltInvert === "off");
+				}
+				if (talkback !== null) {
+					refs.talkbackToggle.checked = !(talkback === "0" || talkback === "false" || talkback === "off");
+				}
+				if (novideo !== null) {
+					refs.senderNoVideoInToggle.checked = !(novideo === "0" || novideo === "false" || novideo === "off");
 				}
 				if (mirrorPreview !== null) {
 					state.previewMirror = !(mirrorPreview === "0" || mirrorPreview === "false" || mirrorPreview === "off");

@@ -26530,7 +26530,7 @@ async function createRoom(roomname = false, reload = false) {
 		session.claimRoomCap = false;
 	}
 	session.claimBypassKey = sanitizePassword(session.claimBypassKey || "") || false;
-	session.requireServerApproval = true;
+	session.requireServerApproval = false;
 
 	session.roomid = roomname;
 	getById("dirroomid").innerHTML = decodeURIComponent(session.roomid);

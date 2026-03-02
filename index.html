@@ -48,7 +48,7 @@
 		
 		<meta name="msapplication-TileColor" content="#da532c" />
 		<meta name="theme-color" content="#0f131d" />
-		<link rel="stylesheet" href="./main.css?ver=4035" />
+		<link rel="stylesheet" href="./main.css?ver=4040" />
 		<script type="text/javascript" crossorigin="anonymous" src="./thirdparty/adapter.js"></script>
 		
 		<link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon" />
@@ -91,7 +91,7 @@
 		</span>
 		<script type="text/javascript" crossorigin="anonymous"  src="./thirdparty/CodecsHandler.js?ver=29"></script>
 		<script type="text/javascript" crossorigin="anonymous" src="./thirdparty/aes.js"></script>
-		<script type="text/javascript" crossorigin="anonymous" src="./webrtc.js?ver=912"></script>
+		<script type="text/javascript" crossorigin="anonymous" src="./webrtc.js?ver=919"></script>
 		<input id="zoomSlider" type="range" style="display: none;" />
 		<span id="electronDragZone" style="display:none;pointer-events: none; z-index:-10; position:absolute;top:0;left:0;width:100%;height:2%;min-height:20px;"></span>
 		<div id="header">
@@ -184,6 +184,18 @@
 			<div class="resizer"></div>
 		</div>
 		<div id="activeShares"></div>
+		<div id="whepShareStatus" class="message-card info hidden" role="status" aria-live="polite" aria-atomic="true">
+			<button id="whepShareDismiss" type="button" class="whep-share-dismiss" onclick="dismissWhepShareStatus(event)" title="Hide WHEP share status" aria-label="Hide WHEP share status">x</button>
+			<h1>WHEP share active</h1>
+			<p id="whepShareDescription">Advertising a WHEP source to room peers via the data channel.</p>
+			<div class="whep-share-row">
+				<input id="whepShareLink" type="text" readonly aria-label="Shared WHEP URL" />
+				<button id="whepShareCopy" onclick="copyFunction(getById('whepShareLink'), event)">Copy</button>
+				<a id="whepShareOpen" href="#" target="_blank" rel="noopener">Open</a>
+			</div>
+			<p id="whepShareTokenNote" class="whep-share-note hidden">Auth token: set</p>
+			<p id="whepShareDataOnly" class="whep-share-note hidden">Data-only mode: no local camera or mic is being published.</p>
+		</div>
 		<div id="controlButtons" class="hidden">
 			<div class="controlPositioning">
                 <div id="subControlButtons">
@@ -210,6 +222,23 @@
                     <div id="chatbutton" title="Toggle the Chat" alt="Toggle the Chat" aria-label="Text chat" onmousedown="event.preventDefault(); event.stopPropagation();"  onclick="toggleChat()"  tabindex="2" role="button" aria-pressed="false" onkeyup="enterPressedClick(event,this);"  class="hidden float" style="cursor: pointer;" >
                         <i id="chattoggle" class="toggleSize las la-comment-alt"></i>
                         <div id="chatNotification"></div>
+                    </div>
+                    <div
+                        id="chatlitebutton"
+                        title="Toggle Social Stream Lite overlay (SHIFT-click setup, ALT/CTRL-click TTS)"
+                        alt="Toggle Social Stream Lite overlay"
+                        aria-label="Social Stream Lite overlay"
+                        onmousedown="event.preventDefault(); event.stopPropagation();"
+                        oncontextmenu="event.preventDefault(); openChatLiteSettings(); return false;"
+                        onclick="toggleChatLiteOverlay(event)"
+                        tabindex="2"
+                        role="button"
+                        aria-pressed="false"
+                        onkeyup="enterPressedClick(event,this);"
+                        class="hidden float"
+                        style="cursor: pointer;"
+                    >
+                        <i id="chatlitetoggle" class="toggleSize las la-broadcast-tower"></i>
                     </div>
                     <div id="mutespeakerbutton" onmousedown="handleSpeakerButtonMouseDown(event)" alt="Toggle the speaker output." aria-label="Mute Speaker output" title="Mute the Speaker (ALT + A)" onclick="toggleSpeakerMute()"  tabindex="2" role="button" aria-pressed="false" onkeyup="enterPressedClick(event,this);"  class="hidden float" style="cursor: pointer;" >
                         <i id="mutespeakertoggle" class="toggleSize las la-volume-up" style="position: relative; top: 0.5px;"></i>
@@ -296,8 +325,15 @@
                     </div>
                 </div>
             </div>
-		</div>
-		<span id="miniTaskBar" style="float: right; bottom: 0px;right:0; position:fixed; display:flex;">
+			</div>
+			<div id="joinRequestPanel" class="hidden">
+				<div class="joinRequestHeader">
+					<strong>Pending Join Requests</strong>
+					<button type="button" onclick="toggleJoinRequestPanel(false)">Close</button>
+				</div>
+				<div id="joinRequestList"></div>
+			</div>
+			<span id="miniTaskBar" style="float: right; bottom: 0px;right:0; position:fixed; display:flex;">
 			<div id="closedList_connectUsers" class="hidden"  onclick="getById('connectUsers').classList.remove('hidden');getById('closedList_connectUsers').classList.add('hidden');">
 				<i class="las la-theater-masks"></i>
 			</div>
@@ -366,10 +402,10 @@
 									<div id="securityLevelRoom" style="display:none;margin-top:3px;position:relative;top:3px;font-size:0.8em;"></div>
 								</th>
 							</tr>
-							<tr>
-								<th style="text-align:right;" class="labelLarge">
-									<b>
-										<span data-translate="password-input-field">Password</span>: 
+								<tr>
+									<th style="text-align:right;" class="labelLarge">
+										<b>
+											<span data-translate="password-input-field">Password</span>:
 									</b>
 								</th>
 								<th class="labelSmall"></th>
@@ -379,10 +415,11 @@
 											<span data-translate="password-input-field">Password</span>: 
 										</b>
 									</div>
-									<input type="text" autocorrect="off" autocapitalize="none" id="passwordRoom" placeholder="Optional room password here" onkeydown="checkStrengthRoom(event, 'securityLevelRoom');" onchange="checkStrengthRoom(event, 'securityLevelRoom');"  onkeyup="enterPressed(event, createRoom);" style="max-width: 431px;width: 100%;font-size: 110%; padding: 5px;" />
-								</th>
-							</tr>
-							<tr >
+										<input type="text" autocorrect="off" autocapitalize="none" id="passwordRoom" placeholder="Optional room password here" onkeydown="checkStrengthRoom(event, 'securityLevelRoom');" onchange="checkStrengthRoom(event, 'securityLevelRoom');"  onkeyup="enterPressed(event, createRoom);" style="max-width: 431px;width: 100%;font-size: 110%; padding: 5px;" />
+										<div id="passwordRoomSSONote" style="display:none; margin-top:6px; font-size:0.85em; opacity:0.9;">SSO rooms use a managed room secret. Manual room password is disabled.</div>
+									</th>
+								</tr>
+								<tr >
 							
 								<th style="text-align:right; padding: 5px; padding-top: 20px;">
 									<input id="broadcastFlag" type="checkbox" title="For large group rooms, this option can reduce the load on remote guests substantially" />
@@ -1114,20 +1151,20 @@
 				<i style="margin-top:30px;font-size:600%;overflow:hidden;" class="largeDarkIcon las la-broadcast-tower"></i>
 			</div>
 			
-			<div id="container-16" class="column columnfade pointer card hidden" style=" overflow-y: auto;">
-				<h2><span data-translate="share-whepsrc">Share via WHEP</span></h2>
-				<i style="margin-top:30px;font-size:560%;overflow:hidden;" class="largeDarkIcon las la-broadcast-tower"></i>
-				<div class="container-inner">
-					<br />
-					<div id="previewWhepSource"></div>
-					<br />
-					<span data-translate="enter-the-whep-URL-you-wish-to-share">Enter the WHEP URL you wish to share.</span><br /><br />
-					<input type="text" autocorrect="off" id="whepURL" autocapitalize="none" style="margin:10px; border:2px solid; padding:10px; width:400px;" title="Enter an HTTPS URL" multiple/><br />
-					<button onclick="previewIframe(getById('whepURL').value);" >Preview WHEP Stream</button> 
-					<button onclick="this.innerHTML = 'Update'; session.publishIFrame(getById('whepURL').value);" >Start Sharing</button><br />
-					<div class="message-card info">
-						<h1>Usage information</h1>
-						<p></p>
+				<div id="container-16" class="column columnfade pointer card hidden" style=" overflow-y: auto;">
+					<h2><span data-translate="share-whepsrc">Share via WHEP</span></h2>
+					<i style="margin-top:30px;font-size:560%;overflow:hidden;" class="largeDarkIcon las la-broadcast-tower"></i>
+					<div class="container-inner">
+						<br />
+						<span data-translate="enter-the-whep-URL-you-wish-to-share">Enter the WHEP URL you wish to share.</span><br /><br />
+						<input type="url" inputmode="url" spellcheck="false" autocorrect="off" id="whepURL" autocapitalize="none" style="margin:10px; border:2px solid; padding:10px; width:400px;" title="Enter an HTTPS URL" placeholder="https://example.com/path/whep" aria-describedby="whepURLHelp whepPreviewState" oninput="handleWhepUrlInputChange(event)" /><br />
+						<button id="whepPreviewToggle" onclick="toggleWhepTestPreview(event)" aria-pressed="false">Start Test Preview</button>
+						<button id="whepShareStart" onclick="startWhepSharingFromInput(event)" >Start Sharing</button><br />
+						<p id="whepURLHelp" class="whep-share-inline-note">Use https:// URLs. http://localhost is allowed for local testing.</p>
+						<p id="whepPreviewState" class="whep-share-inline-note">Test preview is off.</p>
+						<div class="message-card info">
+							<h1>Usage information</h1>
+							<p></p>
 						<ul style="text-align: left;">
 						<li>WHEP sources are expected to support multiple viewers; simulcasting will be used if possible.</li>
 						<li>Remote URLs must allows cross-origin requests (CORS), along with having SSL (https).</li>
@@ -1179,7 +1216,7 @@
 								<span style="color:#daad09;">Welcome to VDO Ninja! We've rebranded!  Nothing else is changing and we're staying 100% free.</span>
 							</h4>
 							<br />
-							<span title="Made in Canada">❄️</span> Site last updated on January 18th. ToS also updated; <a target="_blank" href="https://github.com/steveseguin/vdo.ninja/commit/ee803984d4b1f7fc9174c4ddd92e172007150adc">changes here</a>. Development <a target="_blank" title="Open a page with recent VDO.Ninja development and feature updates" href="https://updates.vdo.ninja/">updates are here.</a> 
+							<span title="Made in Canada">❄️</span> Site last updated on January 27th. ToS also updated; <a target="_blank" href="https://github.com/steveseguin/vdo.ninja/commit/ee803984d4b1f7fc9174c4ddd92e172007150adc">changes here</a>. Development <a target="_blank" title="Open a page with recent VDO.Ninja development and feature updates" href="https://updates.vdo.ninja/">updates are here.</a> 
 							<br />
 							<br />
 							<h3>
@@ -2323,8 +2360,10 @@
 				
 				<button id='advancedOptionsGeneral' onclick="toggleUserUser(this);" >
 				<i class="las la-user-cog" style="position:relative;"></i> <b><span data-translate="user">User</span></b></button>
-				
-				
+
+				<button id='ssoSignOutBtn' onclick="ssoSignOut();" class="advancedToggle" style="display:none;" title="Sign out of SSO">
+				<i class="las la-sign-out-alt" style="position:relative;"></i> <b>Sign Out</b></button>
+
 				<span id="popupSelector_constraints_audio" class="popupSelector_constraints" style="display: none;">
 				
 				</span>
@@ -3108,7 +3147,7 @@
 			// if (!window.location.search){document.body.innerHTML = "";} // uncomment this line, if you wish to try it.
 			
 			var session = WebRTC.Media; // session is a required global variable if configuring manually. Run before loading main.js but after webrtc.js.
-			session.version = "29.1"; // updated: default 1080p now + tweaked outbound bandwidth logic
+			session.version = "29.2"; // added director claim-time room admission controls (cap + bypass key + approval queue)
 			session.streamID = session.generateStreamID(); // randomly generates a streamID for this session. You can set your own programmatically if needed
 			
 			session.defaultPassword = "someEncryptionKey123"; // Change this password if self-deploying for added security/privacy
@@ -3235,29 +3274,48 @@
 		</script>
 		
 		<!-- Authentication client -->
-		<script type="text/javascript" crossorigin="anonymous" src="./auth-client.js?v=2"></script>
+		<script type="text/javascript" crossorigin="anonymous" src="./auth-client.js?v=3"></script>
 
-		<script type="text/javascript">
-			function toggleSSOOptions(enabled){
-				var box = document.getElementById('ssoOptions');
-				if (!box) return;
-				box.style.display = enabled ? 'block' : 'none';
-				var listRow = document.getElementById('preAllowlistRow');
-				if (!enabled) { if (listRow) listRow.style.display='none'; return; }
-				// Ensure allowlist row reflects current selection
-				try {
-					var selected = document.querySelector('input[name="ssoAccessMode"]:checked');
+			<script type="text/javascript">
+				function toggleSSOOptions(enabled){
+					var box = document.getElementById('ssoOptions');
+					if (!box) return;
+					box.style.display = enabled ? 'block' : 'none';
+					var passwordInput = document.getElementById('passwordRoom');
+					if (passwordInput) {
+						if (enabled) {
+							passwordInput.value = '';
+							passwordInput.disabled = true;
+						} else {
+							passwordInput.disabled = false;
+						}
+					}
+					var passwordNote = document.getElementById('passwordRoomSSONote');
+					if (passwordNote) {
+						passwordNote.style.display = enabled ? 'block' : 'none';
+					}
+					var listRow = document.getElementById('preAllowlistRow');
+					if (!enabled) { if (listRow) listRow.style.display='none'; return; }
+					// Ensure allowlist row reflects current selection
+					try {
+						var selected = document.querySelector('input[name="ssoAccessMode"]:checked');
 					if (selected && selected.value === 'allowlist') {
 						if (listRow) listRow.style.display='block';
 					} else {
 						if (listRow) listRow.style.display='none';
 					}
-				} catch(e){}
-			}
-		</script>
+					} catch(e){}
+				}
+				(function initSSOOptionsState(){
+					var ssoToggle = document.getElementById('useSSOForRoom');
+					if (ssoToggle) {
+						toggleSSOOptions(!!ssoToggle.checked);
+					}
+				})();
+			</script>
 
-		<script type="text/javascript" crossorigin="anonymous" id="lib-js" src="./lib.js?ver=1377"></script>
-		<script type="text/javascript" crossorigin="anonymous" id="main-js" src="./main.js?ver=1041"></script>
+		<script type="text/javascript" crossorigin="anonymous" id="lib-js" src="./lib.js?ver=1392"></script>
+		<script type="text/javascript" crossorigin="anonymous" id="main-js" src="./main.js?ver=1050"></script>
 		<script type="module" src="./podcast/bootstrap.js"></script>
 		
 	</body>

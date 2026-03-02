@@ -45,6 +45,373 @@ async function main() {
 		}
 		miscTranslations["enter-display-name"] = text;
 	}
+
+	session.whepShareStatusDismissed = false;
+	session.whepTestPreviewUUID = false;
+	session.whepTestPreviewUrl = false;
+
+	function normalizeWhepShareUrl(rawUrl) {
+		if (!rawUrl || typeof rawUrl !== "string") {
+			return false;
+		}
+		const trimmedUrl = rawUrl.trim();
+		if (!trimmedUrl) {
+			return false;
+		}
+		let parsedUrl = null;
+		try {
+			parsedUrl = new URL(trimmedUrl);
+		} catch (e) {
+			return false;
+		}
+		const isHttps = parsedUrl.protocol === "https:";
+		const isLocalHttp = (parsedUrl.protocol === "http:") && ((parsedUrl.hostname === "localhost") || (parsedUrl.hostname === "127.0.0.1") || (parsedUrl.hostname === "::1") || (parsedUrl.hostname === "[::1]"));
+		if (!isHttps && !isLocalHttp) {
+			return false;
+		}
+		return parsedUrl.href;
+	}
+
+	function getTranslationOrFallback(key, fallbackText) {
+		try {
+			const translated = getTranslation(key);
+			if (translated && (translated !== key)) {
+				return translated;
+			}
+		} catch (e) {}
+		return fallbackText;
+	}
+
+	function updateWhepTestPreviewUI(active = false, message = "") {
+		const toggleButton = getById("whepPreviewToggle");
+		if (toggleButton) {
+			if (active) {
+				toggleButton.innerText = getTranslationOrFallback("stop-test-preview", "Stop Test Preview");
+			} else {
+				toggleButton.innerText = getTranslationOrFallback("start-test-preview", "Start Test Preview");
+			}
+			toggleButton.ariaPressed = active ? "true" : "false";
+			toggleButton.setAttribute("aria-pressed", active ? "true" : "false");
+		}
+
+		const previewState = getById("whepPreviewState");
+		if (previewState) {
+			if (message) {
+				previewState.innerText = message;
+			} else if (active) {
+				previewState.innerText = getTranslationOrFallback("whep-test-preview-running", "Test preview is running (muted).");
+			} else {
+				previewState.innerText = getTranslationOrFallback("whep-test-preview-off", "Test preview is off.");
+			}
+		}
+	}
+
+	function normalizeWhepShareInput() {
+		const whepInput = getById("whepURL");
+		if (!whepInput) {
+			return false;
+		}
+		const normalizedWhepUrl = normalizeWhepShareUrl(whepInput.value || "");
+		if (!normalizedWhepUrl) {
+			if (!session.cleanOutput) {
+				warnUser(getTranslationOrFallback("invalid-whep-source-url", "Invalid WHEP source URL. Use https:// (or http://localhost for local testing)."), 7000);
+			}
+			try {
+				whepInput.focus();
+			} catch (e) {}
+			return false;
+		}
+		whepInput.value = normalizedWhepUrl;
+		return normalizedWhepUrl;
+	}
+
+	function applyWhepShareSettings(whepUrl) {
+		if (!whepUrl) {
+			return false;
+		}
+		session.whepSrc = whepUrl;
+		session.whipoutSettings = { type: "whep", url: whepUrl };
+		if (session.whepSrcToken) {
+			session.whipoutSettings.token = session.whepSrcToken;
+		}
+		session.whipoutSettingsUserSet = true;
+		session.whepShareStatusDismissed = false;
+		updateWhepShareStatus();
+
+		try {
+			if (typeof broadcastWhepSettings === "function") {
+				broadcastWhepSettings("primary");
+			}
+		} catch (e) {
+			warnlog(e);
+		}
+		return true;
+	}
+
+	function muteWhepTestPreviewElement(UUID, retries = 30) {
+		if (!UUID || (session.whepTestPreviewUUID !== UUID)) {
+			return;
+		}
+		const rpc = session.rpcs && session.rpcs[UUID];
+		if (!rpc) {
+			return;
+		}
+		if (rpc.videoElement) {
+			try {
+				rpc.videoElement.muted = true;
+				rpc.videoElement.defaultMuted = true;
+				rpc.videoElement.volume = 0;
+				rpc.videoElement.setAttribute("muted", "");
+				if (rpc.videoElement.play) {
+					rpc.videoElement.play().catch(() => {});
+				}
+			} catch (e) {
+				warnlog(e);
+			}
+			return;
+		}
+		if (retries > 0) {
+			setTimeout(function () {
+				muteWhepTestPreviewElement(UUID, retries - 1);
+			}, 250);
+		}
+	}
+
+	function stopWhepTestPreview(showNotice = true, statusMessage = "") {
+		const UUID = session.whepTestPreviewUUID;
+		if (!UUID) {
+			updateWhepTestPreviewUI(false, statusMessage);
+			return;
+		}
+		const rpc = session.rpcs && session.rpcs[UUID];
+		if (rpc) {
+			rpc.suppressReconnect = true;
+			rpc.reconnecting = false;
+			try {
+				if (rpc.whep && rpc.whep.iceCompletedCallback) {
+					rpc.whep.iceCompletedCallback();
+				}
+			} catch (e) {}
+
+			try {
+				if (rpc.whep && rpc.whep.close) {
+					rpc.whep.close();
+				}
+			} catch (e) {
+				warnlog(e);
+			}
+
+			try {
+				if (rpc.videoElement && rpc.videoElement.recorder) {
+					rpc.videoElement.recorder.stop();
+				}
+			} catch (e) {}
+
+			try {
+				if (rpc.streamSrc) {
+					rpc.streamSrc.getTracks().forEach(function (track) {
+						track.stop();
+					});
+					rpc.streamSrc = null;
+				}
+			} catch (e) {}
+
+			try {
+				if (rpc.videoElement) {
+					rpc.videoElement.srcObject = null;
+					rpc.videoElement.remove();
+					rpc.videoElement = null;
+				}
+			} catch (e) {}
+
+			try {
+				if (rpc.canvas) {
+					rpc.canvas.remove();
+				}
+			} catch (e) {}
+
+			try {
+				if (rpc.imageElement) {
+					rpc.imageElement.remove();
+				}
+			} catch (e) {}
+
+			try {
+				if ("eventPlayActive" in rpc) {
+					clearInterval(rpc.eventPlayActive);
+				}
+			} catch (e) {}
+		}
+
+		try {
+			const previewContainer = document.getElementById("container_" + UUID);
+			if (previewContainer && previewContainer.parentNode) {
+				previewContainer.parentNode.removeChild(previewContainer);
+				updateLockedElements();
+			}
+		} catch (e) {}
+
+		try {
+			delete session.rpcs[UUID];
+		} catch (e) {}
+
+		session.whepTestPreviewUUID = false;
+		session.whepTestPreviewUrl = false;
+		updateWhepTestPreviewUI(false, statusMessage);
+		if (showNotice && !session.cleanOutput) {
+			warnUser(getTranslationOrFallback("whep-test-preview-stopped", "WHEP test preview stopped."), 3000);
+		}
+		setTimeout(function () {
+			updateMixer();
+		}, 1);
+	}
+
+	window.stopWhepTestPreview = function (showNotice = true, statusMessage = "") {
+		stopWhepTestPreview(showNotice, statusMessage);
+	};
+
+	window.handleWhepUrlInputChange = function () {
+		if (!session.whepTestPreviewUUID) {
+			return;
+		}
+		const whepInput = getById("whepURL");
+		const normalizedWhepUrl = normalizeWhepShareUrl((whepInput && whepInput.value) || "");
+		if (!normalizedWhepUrl || (normalizedWhepUrl !== session.whepTestPreviewUrl)) {
+			stopWhepTestPreview(false, getTranslationOrFallback("whep-test-preview-stopped-url-change", "Test preview stopped because the URL changed."));
+		}
+	};
+
+	window.toggleWhepTestPreview = async function (event) {
+		if (event) {
+			event.preventDefault();
+			event.stopPropagation();
+		}
+
+		if (session.whepTestPreviewUUID) {
+			stopWhepTestPreview(true);
+			return false;
+		}
+
+		const normalizedWhepUrl = normalizeWhepShareInput();
+		if (!normalizedWhepUrl) {
+			return false;
+		}
+
+		const previewUUID = "wheptest_" + session.generateRandomString(24);
+		session.whepTestPreviewUUID = previewUUID;
+		session.whepTestPreviewUrl = normalizedWhepUrl;
+		updateWhepTestPreviewUI(true, getTranslationOrFallback("whep-test-preview-starting", "Starting WHEP test preview (muted)..."));
+
+		try {
+			await whepIn(normalizedWhepUrl, session.whepSrcToken || false, previewUUID);
+			muteWhepTestPreviewElement(previewUUID);
+			updateWhepTestPreviewUI(true, getTranslationOrFallback("whep-test-preview-running", "Test preview is running (muted)."));
+			if (!session.cleanOutput) {
+				warnUser(getTranslationOrFallback("whep-test-preview-started", "WHEP test preview started (muted)."), 3000);
+			}
+		} catch (e) {
+			errorlog(e);
+			stopWhepTestPreview(false, getTranslationOrFallback("whep-test-preview-failed", "Test preview failed. Check URL/token and try again."));
+			if (!session.cleanOutput) {
+				warnUser(getTranslationOrFallback("whep-test-preview-failed", "Test preview failed. Check URL/token and try again."), 6000);
+			}
+		}
+		return false;
+	};
+
+	window.startWhepSharingFromInput = function (event) {
+		if (event) {
+			event.preventDefault();
+			event.stopPropagation();
+		}
+
+		const normalizedWhepUrl = normalizeWhepShareInput();
+		if (!normalizedWhepUrl) {
+			return false;
+		}
+
+		if (session.whepTestPreviewUUID) {
+			stopWhepTestPreview(false, getTranslationOrFallback("whep-test-preview-stopped-before-share", "Test preview stopped before sharing."));
+		}
+
+		applyWhepShareSettings(normalizedWhepUrl);
+		const shareButton = getById("whepShareStart");
+		if (shareButton) {
+			shareButton.innerText = getTranslationOrFallback("update", "Update");
+		}
+		try {
+			session.publishIFrame(normalizedWhepUrl);
+		} catch (e) {
+			errorlog(e);
+		}
+		return false;
+	};
+
+	updateWhepTestPreviewUI(false);
+
+	window.dismissWhepShareStatus = function (event) {
+		if (event) {
+			event.preventDefault();
+			event.stopPropagation();
+		}
+		session.whepShareStatusDismissed = true;
+		const status = getById("whepShareStatus");
+		if (status) {
+			status.classList.add("hidden");
+		}
+	};
+
+	function updateWhepShareStatus() {
+		const status = getById("whepShareStatus");
+		if (!status) {
+			return;
+		}
+		if (session.cleanOutput || session.whepShareStatusDismissed) {
+			status.classList.add("hidden");
+			return;
+		}
+		const settings = session.whipoutSettings;
+		const hasWhepShare = session.whipoutSettingsUserSet && settings && settings.type === "whep" && settings.url;
+		if (!hasWhepShare) {
+			status.classList.add("hidden");
+			return;
+		}
+		status.classList.remove("hidden");
+		const linkInput = getById("whepShareLink");
+		if (linkInput) {
+			linkInput.value = settings.url;
+		}
+		const openLink = getById("whepShareOpen");
+		if (openLink) {
+			openLink.href = settings.url;
+		}
+		const tokenNote = getById("whepShareTokenNote");
+		if (tokenNote) {
+			if (settings.token) {
+				tokenNote.classList.remove("hidden");
+			} else {
+				tokenNote.classList.add("hidden");
+			}
+		}
+		const dataOnlyNote = getById("whepShareDataOnly");
+		if (dataOnlyNote) {
+			if (session.dataMode) {
+				dataOnlyNote.classList.remove("hidden");
+			} else {
+				dataOnlyNote.classList.add("hidden");
+			}
+		}
+		const description = getById("whepShareDescription");
+		if (description) {
+			if (session.noMeshcast) {
+				description.innerText = getTranslationOrFallback("whep-share-disabled-advertising", "WHEP sharing is configured, but &nowhep/nomeshcast disables advertising to peers.");
+			} else if (session.roomid === false || session.roomid === null || session.roomid === "") {
+				description.innerText = getTranslationOrFallback("whep-share-join-room", "WHEP sharing is configured. Join a room to advertise it to peers.");
+			} else {
+				description.innerText = getTranslationOrFallback("whep-share-advertising", "Advertising a WHEP source to room peers via the data channel.");
+			}
+		}
+	}
 	
 	try {
 		if (ConfigSettings) {
@@ -98,10 +465,10 @@ async function main() {
 	}
 	
 	// Initialize authentication if enabled
-	if (window.vdoAuth) {
+	if (window.vdoAuth && (urlParams.has("auth") || urlParams.has("requireauth") || urlParams.has("universaltoken") || urlParams.has("authtoken"))) {
 		getById("mainmenu").classList.add("hidden2");
 		getById("header").classList.add("hidden2");
-		
+
 		await window.vdoAuth.init();
 		// Menu visibility is now handled by auth completion
 		if (session.authMode && (session.authToken || session.authSkipped)) {
@@ -178,7 +545,7 @@ async function main() {
 	} else {
 		// check if automatic language translation is available
 		getById("mainmenu").style.opacity = 1;
-		
+
 		if (location.hostname === "alt.vdo.ninja"){
 			session.wss = "wss://china.rtc.ninja:8443";
 		} 
@@ -450,6 +817,133 @@ async function main() {
 		}
 	}
 
+	if (urlParams.has("autorelay")) {
+		var autoRelay = (urlParams.get("autorelay") || "1").toLowerCase();
+		if (["0", "false", "off", "no"].includes(autoRelay)) {
+			session.autoRelay = false;
+		} else {
+			session.autoRelay = true;
+		}
+	}
+
+	if (urlParams.has("autorecover")) {
+		var autoRecover = (urlParams.get("autorecover") || "1").toLowerCase();
+		if (["0", "false", "off", "no"].includes(autoRecover)) {
+			session.autoRelay = false;
+			session.adaptiveDisconnect = false;
+			session.autoWhepFallback = false;
+		} else {
+			session.autoRelay = true;
+			session.adaptiveDisconnect = true;
+			session.autoWhepFallback = true;
+		}
+	}
+
+	if (urlParams.has("p2pfailtimeout")) {
+		var p2pFailTimeout = parseInt(urlParams.get("p2pfailtimeout"));
+		if (Number.isFinite(p2pFailTimeout) && p2pFailTimeout > 0) {
+			session.p2pFailTimeoutMs = Math.min(45000, Math.max(3000, p2pFailTimeout));
+		}
+	}
+
+	if (urlParams.has("peerrecoversteps") || urlParams.has("p2precoversteps")) {
+		var peerRecoverSteps = parseInt(urlParams.get("peerrecoversteps") || urlParams.get("p2precoversteps"));
+		if (Number.isFinite(peerRecoverSteps) && peerRecoverSteps > 0) {
+			session.peerRecoverMaxSteps = Math.min(6, Math.max(1, peerRecoverSteps));
+		}
+	}
+
+	if (urlParams.has("testmedia") || urlParams.has("syntheticmedia")) {
+		var testMediaMode = (urlParams.get("testmedia") || urlParams.get("syntheticmedia") || "1").toLowerCase();
+		if (["0", "false", "off", "no"].includes(testMediaMode)) {
+			session.testMedia = false;
+		} else {
+			session.testMedia = true;
+			if (["audio", "mic", "a"].includes(testMediaMode)) {
+				session.testMediaAudio = true;
+				session.testMediaVideo = false;
+			} else if (["video", "cam", "v"].includes(testMediaMode)) {
+				session.testMediaAudio = false;
+				session.testMediaVideo = true;
+			}
+			if (urlParams.has("testaudio")) {
+				var testAudioMode = (urlParams.get("testaudio") || "1").toLowerCase();
+				session.testMediaAudio = !["0", "false", "off", "no"].includes(testAudioMode);
+			}
+			if (urlParams.has("testvideo")) {
+				var testVideoMode = (urlParams.get("testvideo") || "1").toLowerCase();
+				session.testMediaVideo = !["0", "false", "off", "no"].includes(testVideoMode);
+			}
+			if (urlParams.has("testfps")) {
+				var testFps = parseInt(urlParams.get("testfps"));
+				if (Number.isFinite(testFps) && testFps > 0) {
+					session.testMediaFps = Math.min(60, Math.max(1, testFps));
+				}
+			}
+			if (urlParams.has("testwidth")) {
+				var testWidth = parseInt(urlParams.get("testwidth"));
+				if (Number.isFinite(testWidth) && testWidth > 0) {
+					session.testMediaWidth = Math.min(3840, Math.max(160, testWidth));
+				}
+			}
+			if (urlParams.has("testheight")) {
+				var testHeight = parseInt(urlParams.get("testheight"));
+				if (Number.isFinite(testHeight) && testHeight > 0) {
+					session.testMediaHeight = Math.min(2160, Math.max(120, testHeight));
+				}
+			}
+			if (urlParams.has("testtone")) {
+				var testTone = parseInt(urlParams.get("testtone"));
+				if (Number.isFinite(testTone) && testTone > 0) {
+					session.testMediaTone = Math.min(2000, Math.max(50, testTone));
+				}
+			}
+			if (session.testMediaAudio === false && session.testMediaVideo === false) {
+				session.testMediaAudio = true;
+			}
+			if (typeof enableTestMediaCapture === "function") {
+				enableTestMediaCapture();
+			}
+		}
+	}
+
+	if (urlParams.has("pendingicettl")) {
+		var pendingIceTtl = parseInt(urlParams.get("pendingicettl"));
+		if (Number.isFinite(pendingIceTtl) && pendingIceTtl > 0) {
+			if (pendingIceTtl < 3000) {
+				pendingIceTtl = 3000;
+			} else if (pendingIceTtl > 60000) {
+				pendingIceTtl = 60000;
+			}
+			session.pendingIceTTL = pendingIceTtl;
+		}
+	}
+
+	if (urlParams.has("adaptivedisconnect")) {
+		var adaptiveDisconnect = (urlParams.get("adaptivedisconnect") || "1").toLowerCase();
+		if (["0", "false", "off", "no"].includes(adaptiveDisconnect)) {
+			session.adaptiveDisconnect = false;
+		} else {
+			session.adaptiveDisconnect = true;
+		}
+	}
+
+	if (urlParams.has("disconnectfloor")) {
+		var disconnectFloor = parseInt(urlParams.get("disconnectfloor"));
+		if (Number.isFinite(disconnectFloor) && disconnectFloor > 0) {
+			session.disconnectFloor = disconnectFloor;
+		}
+	}
+	if (urlParams.has("disconnectceil")) {
+		var disconnectCeil = parseInt(urlParams.get("disconnectceil"));
+		if (Number.isFinite(disconnectCeil) && disconnectCeil > 0) {
+			session.disconnectCeil = disconnectCeil;
+		}
+	}
+	if (session.disconnectCeil < session.disconnectFloor) {
+		session.disconnectCeil = session.disconnectFloor;
+	}
+
 	if (urlParams.has("ptz")) {
 		session.ptz = true;
 	}
@@ -693,8 +1187,14 @@ async function main() {
 		if (session.redirectHangup) {
 			try {
 				session.redirectHangup = decodeURIComponent(session.redirectHangup);
-				getById("hangupContainer").innerHTML = "Hang-up complete.  Redirecting shortly...";
 			} catch (e) {}
+
+			session.redirectHangup = sanitizeRedirectURL(session.redirectHangup, 4096);
+			if (session.redirectHangup) {
+				getById("hangupContainer").innerHTML = "Hang-up complete.  Redirecting shortly...";
+			} else {
+				warnlog("Blocked unsafe endpage URL parameter.");
+			}
 		}
 		
 		if (urlParams.has("endpagetimer")) {
@@ -1408,6 +1908,7 @@ async function main() {
 		} catch (e) {
 			console.error(e);
 		}
+		htmlmessage = sanitizeCustomHTML(htmlmessage, 4096);
 		getById("hangupContainer").innerHTML = htmlmessage;
 	}
 
@@ -1840,6 +2341,78 @@ async function main() {
 		} else {
 			session.chatbutton = true;
 			getById("chatbutton").classList.remove("hidden");
+		}
+	}
+
+	if (urlParams.has("chatlite") || urlParams.has("ssnlite") || urlParams.has("socialstreamlite")) {
+		session.chatLiteEnabled = urlParams.get("chatlite") || urlParams.get("ssnlite") || urlParams.get("socialstreamlite") || true;
+		const normalizedChatLiteEnabled = typeof session.chatLiteEnabled === "string" ? session.chatLiteEnabled.trim().toLowerCase() : session.chatLiteEnabled;
+		if (normalizedChatLiteEnabled === "false" || normalizedChatLiteEnabled === "0" || normalizedChatLiteEnabled === "no" || normalizedChatLiteEnabled === "off") {
+			session.chatLiteEnabled = false;
+		} else {
+			session.chatLiteEnabled = true;
+			session.chatLiteButton = true;
+		}
+	}
+
+	if (urlParams.has("chatlitebutton") || urlParams.has("ssnchatbutton")) {
+		session.chatLiteButton = urlParams.get("chatlitebutton") || urlParams.get("ssnchatbutton") || true;
+		const normalizedChatLiteButton = typeof session.chatLiteButton === "string" ? session.chatLiteButton.trim().toLowerCase() : session.chatLiteButton;
+		if (normalizedChatLiteButton === "false" || normalizedChatLiteButton === "0" || normalizedChatLiteButton === "no" || normalizedChatLiteButton === "off") {
+			session.chatLiteButton = false;
+		} else {
+			session.chatLiteButton = true;
+		}
+	}
+
+	if (urlParams.has("chatlitesession") || urlParams.has("ssnsession")) {
+		session.chatLiteSession = urlParams.get("chatlitesession") || urlParams.get("ssnsession") || "";
+		if (session.chatLiteSession) {
+			try {
+				session.chatLiteSession = sanitizeStreamID(session.chatLiteSession) || session.chatLiteSession;
+			} catch (e) {}
+		}
+	}
+
+	if (urlParams.has("chatliteprofile")) {
+		session.chatLiteProfile = urlParams.get("chatliteprofile") || "";
+	}
+
+	if (urlParams.has("chatliteposition")) {
+		session.chatLitePosition = urlParams.get("chatliteposition") || "";
+	}
+
+	if (urlParams.has("chatlitemax")) {
+		session.chatLiteMax = parseInt(urlParams.get("chatlitemax")) || "";
+	}
+
+	if (urlParams.has("chatlitetransparent")) {
+		session.chatLiteTransparent = urlParams.get("chatlitetransparent") || true;
+		const normalizedChatLiteTransparent = typeof session.chatLiteTransparent === "string" ? session.chatLiteTransparent.trim().toLowerCase() : session.chatLiteTransparent;
+		if (normalizedChatLiteTransparent === "false" || normalizedChatLiteTransparent === "0" || normalizedChatLiteTransparent === "no" || normalizedChatLiteTransparent === "off") {
+			session.chatLiteTransparent = false;
+		} else {
+			session.chatLiteTransparent = true;
+		}
+	}
+
+	if (urlParams.has("chatlitenoavatar") || urlParams.has("chatlitehideavatar")) {
+		session.chatLiteNoAvatar = true;
+	}
+
+	if (urlParams.has("chatliteconfig")) {
+		session.chatLiteAutoConfig = true;
+		session.chatLiteButton = true;
+	}
+
+	if (urlParams.has("chatlitetts")) {
+		session.chatLiteTtsMode = (urlParams.get("chatlitetts") || "").toLowerCase().trim();
+	}
+
+	if (session.chatLiteButton) {
+		const chatLiteButton = getById("chatlitebutton");
+		if (chatLiteButton) {
+			chatLiteButton.classList.remove("hidden");
 		}
 	}
 
@@ -2473,7 +3046,7 @@ async function main() {
 		}
 	}
 
-	if (session.director && urlParams.has("autochannels") || urlParams.has("autochannel")) {
+	if (session.director && (urlParams.has("autochannels") || urlParams.has("autochannel"))) {
 		// Director-only: auto-assign guests to audio channels
 		var val = urlParams.get("autochannels") || urlParams.get("autochannel");;
 		if (val) {
@@ -3325,6 +3898,22 @@ async function main() {
 		session.noiseSuppression = false;
 	}
 
+	if (urlParams.has("noheadphones") || urlParams.has("nhp")) {
+		// Force voice processing on for speaker-based setups without headphones.
+		// Overrides proaudio/stereo disabling of AEC. Individual &aec/&denoise/&autogain params can still override.
+		log("NO HEADPHONES MODE");
+		session.echoCancellation = true;
+		session.autoGainControl = true;
+		session.noiseSuppression = true;
+		if (session.voiceIsolation === null) {
+			session.voiceIsolation = true;
+		}
+		if (session.noisegate === null) {
+			session.noisegate = true;
+			session.audioEffects = true;
+		}
+	}
+
 	if (urlParams.has("channelcount") || urlParams.has("ac") || urlParams.has("inputchannels")) {
 		// if updates to this, see also function toggleMonoStereoMic()
 		session.audioInputChannels = urlParams.get("channelcount") || urlParams.get("ac") || urlParams.get("inputchannels") || 0;
@@ -3536,6 +4125,9 @@ async function main() {
 	if (urlParams.has("streamid") || urlParams.has("view") || urlParams.has("v") || urlParams.has("V") ||urlParams.has("pull")) {
 		// the streams we want to view; if set, but let blank, we will request no streams to watch.
 		session.view = urlParams.get("streamid") || urlParams.get("view") || urlParams.get("v") || urlParams.get("V") || urlParams.get("pull") || null; // this value can be comma seperated for multiple streams to pull
+
+		const dmcaBlockedViewIDs = ["PeSVkZT"]; // add/remove blocked IDs here.  FEB 10th 2026
+		if ((session.view || "").split(",").map(v => v.trim()).some(v => dmcaBlockedViewIDs.indexOf(v) !== -1)) { warnUser("This stream is not available due to a DMCA request."); return; }
 
 		getById("headphonesDiv2").classList.remove("hidden");
 		getById("headphonesDiv").classList.remove("hidden");
@@ -4680,14 +5272,19 @@ async function main() {
 	}
 
 	if (urlParams.has("debug")) {
-		DebugLog = true;
-		if (!errorReport) {
-			errorReport = [];
-		}
-		if (urlParams.get("debug") == "1") {
-			debugStart();
-		} else if (urlParams.get("debug")) {
-			debugStart(urlParams.get("debug"));
+		const debugHost = ((window.location && window.location.hostname) || "").toLowerCase();
+		const allowDebug = debugHost === "vdo.ninja" || debugHost.endsWith(".vdo.ninja");
+		if (allowDebug) {
+			const debugSetting = (urlParams.get("debug") || "1").toLowerCase();
+			if (!["0", "false", "off", "no"].includes(debugSetting)) {
+				DebugLog = true;
+				if (!errorReport) {
+					errorReport = [];
+				}
+				debugStart(); // locked to official debug endpoint in webrtc.js
+			}
+		} else {
+			warnlog("Debug mode is disabled outside vdo.ninja domains.");
 		}
 	}
 
@@ -5056,6 +5653,7 @@ async function main() {
 			session.welcomeMessage = session.welcomeMessage.replace(/(\r\n|\n|\r)/gm, " ");
 			session.welcomeMessage = decodeURIComponent(session.welcomeMessage);
 		} catch (e) {}
+		session.welcomeMessage = sanitizeCustomHTML(session.welcomeMessage, 4096);
 	}
 
 	if (urlParams.has("welcomehtml")) {
@@ -5068,6 +5666,7 @@ async function main() {
 			session.welcomeHTML = session.welcomeHTML.replace(/(\r\n|\n|\r)/gm, " ");
 			session.welcomeHTML = decodeURIComponent(session.welcomeHTML);
 		} catch (e) {}
+		session.welcomeHTML = sanitizeCustomHTML(session.welcomeHTML, 8192);
 	}
 
 	if (urlParams.has("welcomeimage") || urlParams.has("welcomeimg")) {
@@ -5559,6 +6158,28 @@ async function main() {
 		}
 
 		log("maxconnections set");
+	}
+
+	if (urlParams.has("roomcap") || urlParams.has("rcap")) {
+		let roomCap = urlParams.get("roomcap");
+		if (roomCap === null || roomCap === "") {
+			roomCap = urlParams.get("rcap") || "";
+		}
+		roomCap = parseInt(roomCap, 10);
+		if (Number.isFinite(roomCap) && roomCap > 0) {
+			session.claimRoomCap = roomCap;
+		} else {
+			session.claimRoomCap = false;
+		}
+	}
+
+	if (urlParams.has("roomkey") || urlParams.has("rk")) {
+		const roomBypassKey = sanitizePassword(urlParams.get("roomkey") || urlParams.get("rk") || "");
+		session.roomBypassKey = roomBypassKey || false;
+		session.claimBypassKey = roomBypassKey || false;
+		if (!session.roomBypassKey) {
+			session.claimBypassKey = false;
+		}
 	}
 
 	if (urlParams.has("secure")) {
@@ -6977,8 +7598,16 @@ async function main() {
 				session.whepSrc = await promptAlt("Enter the WHEP source as a URL");
 			}
 			if (session.whepSrc) {
-				session.whipoutSettings = { type: "whep", url: session.whepSrc };
-				session.whipoutSettingsUserSet = true;
+				const normalizedWhepSrc = normalizeWhepShareUrl(session.whepSrc);
+				if (normalizedWhepSrc) {
+					const whepInput = getById("whepURL");
+					if (whepInput) {
+						whepInput.value = normalizedWhepSrc;
+					}
+					applyWhepShareSettings(normalizedWhepSrc);
+				} else {
+					warnUser(getTranslationOrFallback("invalid-whep-source-url", "Invalid WHEP source URL. Use https:// (or http://localhost for local testing)."), 7000);
+				}
 			}
 		} catch (e) {
 			errorlog(e);
@@ -6988,7 +7617,7 @@ async function main() {
 		if (session.whipoutSettings) {
 			try {
 				session.whepSrcToken = urlParams.get("whepsharetoken") || urlParams.get("whepsrctoken") || null;
-				log("WHEP TOKEN: " + session.whepSrcToken);
+				log("WHEP TOKEN: [set]");
 				if (session.whepSrcToken) {
 					try {
 						session.whepSrcToken = decodeURIComponent(session.whepSrcToken);
@@ -7001,6 +7630,7 @@ async function main() {
 				if (session.whepSrcToken) {
 					session.whipoutSettings.token = session.whepSrcToken;
 					session.whipoutSettingsUserSet = true;
+					updateWhepShareStatus();
 				}
 			} catch (e) {
 				errorlog(e);
@@ -7579,9 +8209,9 @@ async function main() {
 				} else if (e.data.function === "publishScreen") {
 					ret = publishScreen();
 				} else if (e.data.function === "targetGuest") {
-					ret = targetGuest(data.target, data.action, data.value);
-				} else if (e.data.function === "commands" && data.action && Commands[data.action]) {
-					ret = Commands[data.action](data.value, data.value2 || null); 
+					ret = targetGuest(e.data.target, e.data.action, e.data.value, e.data.value2 || null);
+				} else if (e.data.function === "commands" && e.data.action && Commands[e.data.action]) {
+					ret = Commands[e.data.action](e.data.value, e.data.value2 || null);
 				} else if (e.data.function === "routeMessage") {
 					try {
 						session.ws.onmessage({ data: e.data.value });
@@ -8307,14 +8937,20 @@ async function main() {
 
 		if ("getLoudness" in e.data) {
 			log("GOT LOUDNESS REQUEST");
-			if (e.data.getLoudness == true) {
-				if (!session.pushLoudness && session.audioEffects !== true) {
+				if (e.data.getLoudness == true) {
 					session.pushLoudness = true;
-					for (var i in session.rpcs) {
+					if ("cib" in e.data) {
+						session.pushLoudnessCIB = e.data.cib || null;
+					} else {
+						session.pushLoudnessCIB = null;
+					}
+
+				for (var i in session.rpcs) {
+					if (typeof ensureLoudnessPipeline === "function") {
+						ensureLoudnessPipeline(i, "getLoudness");
+					} else if (session.audioEffects !== true) {
 						updateIncomingAudioElement(i); // this can be called when turning on/off inbound audio processing.
 					}
-				} else {
-					session.pushLoudness = true;
 				}
 
 				var loudness = {};
@@ -8322,14 +8958,21 @@ async function main() {
 					loudness[session.rpcs[i].streamID] = session.rpcs[i].stats.Audio_Loudness;
 				}
 
+				var loudnessSnapshot = {
+					action: "loudness",
+					mode: "snapshot",
+					loudness: loudness
+				};
+					if ("cib" in e.data) {
+						loudnessSnapshot.cib = e.data.cib || null;
+					}
+
 				parent.postMessage(
-					{
-						loudness: loudness,
-						cib: e.data.cib || null
-					},
+					loudnessSnapshot,
 					session.iframetarget
 				);
 			} else {
+				session.pushLoudnessCIB = null;
 				if (session.pushLoudness && !session.audioEffects) {
 					// turn off audio processing
 					session.pushLoudness = false;
@@ -9427,6 +10070,16 @@ async function main() {
 			}
 		}
 	});
+
+	setTimeout(function () {
+		try {
+			if (typeof initChatLiteIntegration === "function") {
+				initChatLiteIntegration();
+			}
+		} catch (e) {
+			errorlog(e);
+		}
+	}, 250);
 
 	try {
 		navigator.serviceWorker

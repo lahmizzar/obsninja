@@ -1004,6 +1004,16 @@ body.podcast-studio-mode > :not(#podcast-root):not(#podcast-room-gate):not([data
   color: #2fe7a3;
 }
 
+.upload-status-line[data-status="pending"],
+.upload-status-line[data-status="uploading"],
+.upload-status-line[data-status="queued"] {
+  color: #9ec5ff;
+}
+
+.upload-status-line[data-status="skipped"] {
+  color: rgba(255, 255, 255, 0.62);
+}
+
 .upload-status-line[data-status="error"] {
   color: #ff5c69;
 }
@@ -1431,8 +1441,27 @@ body.podcast-studio-mode > :not(#podcast-root):not(#podcast-room-gate):not([data
   color: rgba(255, 255, 255, 0.7);
 }
 
+.iso-config-summary__services {
+  margin-top: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.iso-config-summary__item--service {
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+}
+
 .iso-config-summary__item[data-state='ready'] {
   color: #2fe7a3;
+}
+
+.iso-config-summary__item[data-state='uploading'] {
+  color: #9ec5ff;
+}
+
+.iso-config-summary__item[data-state='complete'] {
+  color: #8fd8ff;
 }
 
 .iso-config-summary__item[data-state='error'] {

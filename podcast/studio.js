@@ -25,7 +25,11 @@ const PODCAST_RECORD_PLAN_EVENT = 'podcast-record-plan';
 const PODCAST_RECORD_STATUS_EVENT = 'podcast-record-status';
 const UPLOAD_TRACKER_COOLDOWN_MS = 15000;
 const DRIVE_PROGRESS_EVENT = 'vdoninja:gdrive-progress';
+const REMOTE_RECORDER_EVENT = 'vdoninja:remote-recorder-status';
 const DRIVE_STATUS_RESET_MS = 8000;
+const DRIVE_REQUEST_ACK_TIMEOUT_MS = 12000;
+const DRIVE_REQUEST_STALE_TIMEOUT_MS = 60000;
+const DRIVE_RECORDER_HEARTBEAT_GRACE_MS = DRIVE_REQUEST_STALE_TIMEOUT_MS + 15000;
 const DRIVE_STATUS_MESSAGES = {
   idle: 'Drive idle',
   pending: 'Drive readying…',
@@ -1325,6 +1329,8 @@ class PodcastStudioApp {
     this.rosterDriveButtons = new Map();
     this.rosterDriveStatuses = new Map();
     this.driveStatusResetTimers = new Map();
+    this.driveRequestTimers = new Map();
+    this.driveRecorderStates = new Map();
     this.driveProgressSnapshots = new Map();
     this.meterValues = new Map();
     this.outputIndicators = new Map();
@@ -1421,6 +1427,7 @@ class PodcastStudioApp {
     this.recordingPlan = null;
     this.recordingSessionId = null;
     this.boundDriveProgressHandler = null;
+    this.boundRemoteRecorderHandler = null;
   }
 
   async init() {
@@ -1453,6 +1460,8 @@ class PodcastStudioApp {
     window.addEventListener(PODCAST_CLOUD_EVENT, this.cloudStateListener);
     this.boundDriveProgressHandler = (event) => this.handleDriveProgressEvent(event);
     window.addEventListener(DRIVE_PROGRESS_EVENT, this.boundDriveProgressHandler);
+    this.boundRemoteRecorderHandler = (event) => this.handleRemoteRecorderStatusEvent(event);
+    window.addEventListener(REMOTE_RECORDER_EVENT, this.boundRemoteRecorderHandler);
     this.updateRoomIndicator();
     this.updateCloudFooter();
     this.attachRecorderEvents();
@@ -2478,7 +2487,17 @@ class PodcastStudioApp {
     const isoSummary = createElement('div', 'iso-config-summary');
     this.cloudSummaryNode = createElement('div', 'iso-config-summary__item', { text: 'Status: checking...' });
     this.cloudSummaryNode.dataset.state = 'pending';
-    isoSummary.append(this.cloudSummaryNode);
+    const serviceProgress = createElement('div', 'iso-config-summary__services');
+    this.cloudProgressNodes.drive = createElement('div', 'iso-config-summary__item iso-config-summary__item--service', {
+      text: 'Drive uploads idle',
+    });
+    this.cloudProgressNodes.drive.dataset.state = 'idle';
+    this.cloudProgressNodes.dropbox = createElement('div', 'iso-config-summary__item iso-config-summary__item--service', {
+      text: 'Dropbox uploads idle',
+    });
+    this.cloudProgressNodes.dropbox.dataset.state = 'idle';
+    serviceProgress.append(this.cloudProgressNodes.drive, this.cloudProgressNodes.dropbox);
+    isoSummary.append(this.cloudSummaryNode, serviceProgress);
 
     isoConfigCard.append(isoConfigList, isoSummary);
     sessionToolsGrid.append(isoConfigCard);
@@ -3393,16 +3412,26 @@ class PodcastStudioApp {
       }
       wrapper.append(metaLine);
       const statusContainer = createElement('div', 'upload-status');
+      const localLine = STUDIO_DISK_FEATURE_FLAG ? this.createServiceStatusLine('local') : null;
       const driveLine = this.createServiceStatusLine('drive');
       const dropboxLine = this.createServiceStatusLine('dropbox');
+      if (localLine) {
+        statusContainer.append(localLine);
+      }
       statusContainer.append(driveLine, dropboxLine);
       wrapper.append(statusContainer);
       this.outputsContainer.append(wrapper);
-      uploadPromises.push(
+      const transferTasks = [
         this.queueCloudUpload(meta, {
           drive: driveLine,
           dropbox: dropboxLine,
         }),
+      ];
+      if (localLine) {
+        transferTasks.unshift(this.queueLocalDiskWrite(meta, localLine));
+      }
+      uploadPromises.push(
+        Promise.allSettled(transferTasks),
       );
     });
     if (uploadPromises.length) {
@@ -3772,6 +3801,7 @@ class PodcastStudioApp {
     const button = createElement('button', 'roster-action-button roster-action-button--drive', {
       type: 'button',
       text: 'Guest → Drive',
+      title: 'Record guest to Google Drive (video + audio)',
     });
     button.dataset.uuid = participant.uuid;
     button.addEventListener('click', () => this.handleDriveRecordToggle(participant.uuid));
@@ -3792,13 +3822,116 @@ class PodcastStudioApp {
     if (!uuid) {
       return;
     }
+    this.clearDriveRequestTimers(uuid);
     if (this.driveStatusResetTimers.has(uuid)) {
       clearTimeout(this.driveStatusResetTimers.get(uuid));
       this.driveStatusResetTimers.delete(uuid);
     }
     this.rosterDriveButtons.delete(uuid);
     this.rosterDriveStatuses.delete(uuid);
+    this.driveRecorderStates.delete(uuid);
     this.driveProgressSnapshots.delete(uuid);
+  }
+
+  clearDriveRequestTimers(uuid) {
+    if (!uuid) {
+      return;
+    }
+    const timers = this.driveRequestTimers.get(uuid);
+    if (!timers) {
+      return;
+    }
+    if (timers.ack) {
+      clearTimeout(timers.ack);
+    }
+    if (timers.stale) {
+      clearTimeout(timers.stale);
+    }
+    this.driveRequestTimers.delete(uuid);
+  }
+
+  isDriveRecorderHeartbeatActive(uuid) {
+    const state = this.driveRecorderStates.get(uuid);
+    if (!state) {
+      return false;
+    }
+    if (!(state.code >= 0 || state.code === -5 || state.code === -2)) {
+      return false;
+    }
+    if (!state.at) {
+      return true;
+    }
+    return Date.now() - state.at <= DRIVE_RECORDER_HEARTBEAT_GRACE_MS;
+  }
+
+  scheduleDriveRequestWatchdog(uuid) {
+    if (!uuid) {
+      return;
+    }
+    this.clearDriveRequestTimers(uuid);
+    const timers = {
+      ack: null,
+      stale: null,
+    };
+    timers.ack = setTimeout(() => {
+      const latestSnapshot = this.driveProgressSnapshots.get(uuid);
+      if (latestSnapshot) {
+        this.setRosterDriveStatusFromSnapshot(uuid, latestSnapshot);
+        return;
+      }
+      const legacyButton = this.findLegacyDriveButton(uuid);
+      const pressed = Boolean(legacyButton?.classList?.contains('pressed'));
+      this.setRosterDriveStatus(
+        uuid,
+        'pending',
+        pressed
+          ? 'Drive requested. Waiting for guest recorder to start…'
+          : 'Drive request sent. Waiting for guest to confirm recording permission…',
+      );
+      const runStaleCheck = () => {
+        const staleSnapshot = this.driveProgressSnapshots.get(uuid);
+        if (staleSnapshot) {
+          this.setRosterDriveStatusFromSnapshot(uuid, staleSnapshot);
+          return;
+        }
+        const stillPressed = Boolean(this.findLegacyDriveButton(uuid)?.classList?.contains('pressed'));
+        if (this.isDriveRecorderHeartbeatActive(uuid)) {
+          this.setRosterDriveStatus(uuid, 'pending', 'Guest recorder is active. Waiting for Drive upload stats…');
+          timers.stale = setTimeout(runStaleCheck, DRIVE_REQUEST_STALE_TIMEOUT_MS);
+          this.driveRequestTimers.set(uuid, timers);
+          return;
+        }
+        if (!stillPressed) {
+          this.setRosterDriveStatus(uuid, 'error', 'Guest did not confirm Drive recording.');
+          this.updateDriveActionAvailability(uuid);
+        } else {
+          this.setRosterDriveStatus(uuid, 'error', 'Drive upload never started. Ask guest to allow recording and retry.');
+          this.updateDriveActionAvailability(uuid);
+        }
+        this.clearDriveRequestTimers(uuid);
+      };
+      timers.stale = setTimeout(runStaleCheck, DRIVE_REQUEST_STALE_TIMEOUT_MS);
+      this.driveRequestTimers.set(uuid, timers);
+    }, DRIVE_REQUEST_ACK_TIMEOUT_MS);
+    this.driveRequestTimers.set(uuid, timers);
+  }
+
+  reconcileDriveRequestOutcome(uuid) {
+    if (!uuid) {
+      return;
+    }
+    const latestSnapshot = this.driveProgressSnapshots.get(uuid);
+    if (latestSnapshot) {
+      this.setRosterDriveStatusFromSnapshot(uuid, latestSnapshot);
+      return;
+    }
+    const legacyButton = this.findLegacyDriveButton(uuid);
+    const pressed = Boolean(legacyButton?.classList?.contains('pressed'));
+    if (pressed) {
+      this.setRosterDriveStatus(uuid, 'pending', 'Drive request sent. Waiting for upload telemetry…');
+      return;
+    }
+    this.setRosterDriveStatus(uuid, 'error', 'Drive upload not started. Retry and have the guest accept the recording prompt.');
   }
 
   findLegacyDriveButton(uuid) {
@@ -3843,13 +3976,22 @@ class PodcastStudioApp {
     button.disabled = true;
     try {
       if (isActive) {
+        this.clearDriveRequestTimers(uuid);
+        this.driveRecorderStates.delete(uuid);
         await window.requestGoogleDriveRecord(legacyButton, false);
         this.setRosterDriveStatus(uuid, 'idle', DRIVE_STATUS_MESSAGES.idle);
       } else {
+        // Drop any stale snapshot from a prior upload so a new request must
+        // wait for fresh telemetry before reconciling success/failure.
+        this.driveProgressSnapshots.delete(uuid);
+        this.driveRecorderStates.delete(uuid);
         this.setRosterDriveStatus(uuid, 'pending', 'Requesting Drive upload…');
         await window.requestGoogleDriveRecord(legacyButton);
+        this.scheduleDriveRequestWatchdog(uuid);
+        this.reconcileDriveRequestOutcome(uuid);
       }
     } catch (error) {
+      this.clearDriveRequestTimers(uuid);
       const message = error?.message || 'Drive request cancelled';
       this.setRosterDriveStatus(uuid, 'error', message);
     } finally {
@@ -3912,6 +4054,9 @@ class PodcastStudioApp {
     const label = text || DRIVE_STATUS_MESSAGES[state] || DRIVE_STATUS_MESSAGES.idle;
     node.dataset.state = state;
     node.textContent = label;
+    if (state === 'done' || state === 'idle' || state === 'error') {
+      this.clearDriveRequestTimers(uuid);
+    }
     if (state === 'done') {
       const timer = setTimeout(() => {
         this.setRosterDriveStatus(uuid, 'idle', DRIVE_STATUS_MESSAGES.idle);
@@ -3934,6 +4079,7 @@ class PodcastStudioApp {
       this.setRosterDriveStatus(uuid, 'idle', DRIVE_STATUS_MESSAGES.idle);
       return;
     }
+    this.clearDriveRequestTimers(uuid);
     if (gdrive.state === 2) {
       this.setRosterDriveStatus(uuid, 'done', DRIVE_STATUS_MESSAGES.done);
       return;
@@ -3957,6 +4103,59 @@ class PodcastStudioApp {
       return;
     }
     this.setRosterDriveStatusFromSnapshot(uuid, gdrive || null);
+    this.updateDriveActionAvailability(uuid);
+  }
+
+  handleRemoteRecorderStatusEvent(event) {
+    const detail = event?.detail;
+    if (!detail || !detail.UUID) {
+      return;
+    }
+    const { UUID: uuid, recorder, screen } = detail;
+    if (screen || !this.rosterDriveStatuses.has(uuid)) {
+      return;
+    }
+    const legacyDriveButton = this.findLegacyDriveButton(uuid);
+    const hasWatchdog = this.driveRequestTimers.has(uuid);
+    const drivePressed = Boolean(legacyDriveButton?.classList?.contains('pressed'));
+    const currentState = this.rosterDriveStatuses.get(uuid)?.dataset?.state || 'idle';
+    const driveStateActive = currentState === 'pending' || currentState === 'uploading';
+    if (!hasWatchdog && !drivePressed && !driveStateActive) {
+      // Ignore generic remote-recorder updates unless Drive was actually requested/active.
+      return;
+    }
+    const code = parseInt(recorder, 10);
+    if (!Number.isFinite(code)) {
+      return;
+    }
+    this.driveRecorderStates.set(uuid, { code, at: Date.now() });
+    if (code >= 0) {
+      if (!this.driveProgressSnapshots.get(uuid)) {
+        const minutes = Math.floor(code / 60);
+        const seconds = Math.max(0, code - minutes * 60).toString().padStart(2, '0');
+        this.setRosterDriveStatus(uuid, 'pending', `Guest recording ${minutes}m ${seconds}s… waiting for Drive stats`);
+      }
+      this.updateDriveActionAvailability(uuid);
+      return;
+    }
+    if (code === -5) {
+      this.setRosterDriveStatus(uuid, 'pending', 'Guest recorder started with experimental browser support.');
+    } else if (code === -4) {
+      this.setRosterDriveStatus(uuid, 'error', 'Guest recording stopped unexpectedly.');
+    } else if (code === -3) {
+      this.setRosterDriveStatus(uuid, 'error', 'Guest browser cannot record/upload to Drive.');
+    } else if (code === -2) {
+      this.setRosterDriveStatus(uuid, 'pending', 'Guest recorder stopping…');
+    } else if (code === -1) {
+      const snapshot = this.driveProgressSnapshots.get(uuid);
+      if (snapshot) {
+        this.setRosterDriveStatusFromSnapshot(uuid, snapshot);
+      } else if (hasWatchdog || drivePressed || driveStateActive) {
+        this.setRosterDriveStatus(uuid, 'error', 'Guest recorder stopped before Drive upload telemetry started.');
+      } else {
+        this.setRosterDriveStatus(uuid, 'idle', DRIVE_STATUS_MESSAGES.idle);
+      }
+    }
     this.updateDriveActionAvailability(uuid);
   }
 
@@ -4297,6 +4496,8 @@ class PodcastStudioApp {
         : 'Dropbox link pending';
       this.dropboxStatusNode.textContent = dropboxText;
     }
+    this.refreshUploadProgress('drive');
+    this.refreshUploadProgress('dropbox');
     this.updateCloudLinkUI();
     this.updateReadinessSummary();
   }
@@ -4305,10 +4506,17 @@ class PodcastStudioApp {
     if (this.cloudSummaryNode) {
       const driveActive = Boolean(this.cloud?.hasDriveAccess());
       const dropboxActive = Boolean(this.cloud?.hasDropboxAccess());
+      const diskMeta = readDiskRecordingState();
+      const diskReady = Boolean(STUDIO_DISK_FEATURE_FLAG && diskMeta.enabled && diskMeta.folderName);
       const driveStatus = driveActive ? 'Drive ready' : 'Drive not linked';
       const dropboxStatus = dropboxActive ? 'Dropbox ready' : 'Dropbox not linked';
-      this.cloudSummaryNode.textContent = `Cloud uploads: ${driveStatus} • ${dropboxStatus}`;
-      this.cloudSummaryNode.dataset.state = driveActive || dropboxActive ? 'ready' : 'pending';
+      const diskStatus = diskReady
+        ? `Disk armed (${diskMeta.folderName})`
+        : STUDIO_DISK_FEATURE_FLAG
+          ? 'Disk not armed'
+          : 'Disk unsupported';
+      this.cloudSummaryNode.textContent = `Cloud uploads (video + audio): ${driveStatus} • ${dropboxStatus} • ${diskStatus}`;
+      this.cloudSummaryNode.dataset.state = driveActive || dropboxActive || diskReady ? 'ready' : 'pending';
     }
   }
 
@@ -4351,7 +4559,26 @@ class PodcastStudioApp {
     if (service === 'dropbox') {
       return 'Dropbox';
     }
+    if (service === 'local') {
+      return 'Local disk';
+    }
     return service || 'Service';
+  }
+
+  normalizeUploadStatus(service, status) {
+    if (service === 'drive' && status === 'uploaded') {
+      // Legacy Drive flows finalize asynchronously after blob handoff.
+      return 'queued';
+    }
+    return status || 'unknown';
+  }
+
+  isDiskDestinationReady() {
+    if (!STUDIO_DISK_FEATURE_FLAG) {
+      return false;
+    }
+    const meta = readDiskRecordingState();
+    return Boolean(meta.enabled && meta.folderName);
   }
 
   createServiceStatusLine(service) {
@@ -4362,12 +4589,26 @@ class PodcastStudioApp {
         ? this.cloud?.hasDriveAccess()
         : service === 'dropbox'
           ? this.cloud?.hasDropboxAccess()
+          : service === 'local'
+            ? this.isDiskDestinationReady()
           : false;
-    const hint = ready ? 'ready' : 'link to upload';
+    const hint = ready
+      ? service === 'local'
+        ? 'armed'
+        : 'ready'
+      : service === 'local'
+        ? 'not armed'
+        : 'link to upload';
     line.textContent = `${this.describeService(service)}: ${hint}`;
-    line.title = ready
-      ? `${this.describeService(service)} is linked; uploads will start when queued.`
-      : `Link ${this.describeService(service)} above to enable uploads.`;
+    if (service === 'local') {
+      line.title = ready
+        ? 'Files will be written into the armed local folder after recording stops.'
+        : 'Arm local disk recording above to write files directly into the selected folder.';
+    } else {
+      line.title = ready
+        ? `${this.describeService(service)} is linked; uploads will start when queued.`
+        : `Link ${this.describeService(service)} above to enable uploads.`;
+    }
     return line;
   }
 
@@ -4442,7 +4683,11 @@ class PodcastStudioApp {
     }
     tracker.set(key, entry);
     this.refreshUploadProgress(service);
-    const ttl = status === 'error' ? UPLOAD_TRACKER_COOLDOWN_MS * 2 : UPLOAD_TRACKER_COOLDOWN_MS;
+    const ttl = status === 'error'
+      ? UPLOAD_TRACKER_COOLDOWN_MS * 2
+      : status === 'queued'
+        ? UPLOAD_TRACKER_COOLDOWN_MS * 4
+        : UPLOAD_TRACKER_COOLDOWN_MS;
     setTimeout(() => {
       const current = tracker.get(key);
       if (current && current.status === status) {
@@ -4466,6 +4711,7 @@ class PodcastStudioApp {
     const entries = Array.from(tracker.values());
     const errors = entries.filter((entry) => entry.status === 'error');
     const active = entries.filter((entry) => entry.status === 'pending' || entry.status === 'uploading');
+    const queued = entries.filter((entry) => entry.status === 'queued');
     const completed = entries.filter((entry) => entry.status === 'uploaded');
     const skipped = entries.filter((entry) => entry.status === 'skipped');
     const uploadedBytes = entries.reduce((total, entry) => total + Math.min(entry.bytesUploaded || 0, entry.bytesTotal || entry.bytesUploaded || 0), 0);
@@ -4481,6 +4727,11 @@ class PodcastStudioApp {
       node.dataset.state = 'uploading';
       return;
     }
+    if (queued.length) {
+      node.textContent = `${this.describeService(service)} queued ${queued.length} file${queued.length === 1 ? '' : 's'} • finalizing`;
+      node.dataset.state = 'pending';
+      return;
+    }
     if (completed.length || skipped.length) {
       node.textContent = `${this.describeService(service)} uploads complete`;
       node.dataset.state = 'complete';
@@ -4490,23 +4741,109 @@ class PodcastStudioApp {
     node.dataset.state = 'idle';
   }
 
- applyUploadResult(element, result) {
+  applyUploadResult(element, result) {
     if (!element || !result) {
       return;
     }
-    const label = this.describeService(result.service || element.dataset.service);
-    element.dataset.status = result.status || 'unknown';
-    if (result.status === 'uploaded') {
+    const service = result.service || element.dataset.service;
+    const label = this.describeService(service);
+    const normalizedStatus = this.normalizeUploadStatus(service, result.status);
+    element.dataset.status = normalizedStatus;
+    if (normalizedStatus === 'queued') {
+      const sizeText = result.bytes ? ` (${this.formatFileSize(result.bytes)})` : '';
+      element.textContent = `${label}: queued${sizeText}`;
+    } else if (normalizedStatus === 'uploaded') {
       const sizeText = result.bytes ? ` (${this.formatFileSize(result.bytes)})` : '';
       element.textContent = `${label}: uploaded${sizeText}`;
-    } else if (result.status === 'skipped') {
+    } else if (normalizedStatus === 'skipped') {
       element.textContent = `${label}: ${result.reason || 'skipped'}`;
-    } else if (result.status === 'error') {
+    } else if (normalizedStatus === 'error') {
       const message = result.error?.message || result.error?.toString() || 'failed';
       element.textContent = `${label}: ${message}`;
       element.dataset.status = 'error';
     } else {
-      element.textContent = `${label}: ${result.status || 'unknown'}`;
+      element.textContent = `${label}: ${normalizedStatus}`;
+    }
+  }
+
+  sanitizeDiskFilename(filename, fallbackExt = 'wav') {
+    const fallback = `podcast-track-${Date.now()}.${fallbackExt}`;
+    const input = (filename || fallback).toString();
+    const safe = input
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .replace(/\s+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^-+|-+$/g, '');
+    return safe || fallback;
+  }
+
+  async saveBlobToArmedDisk(blob, filename) {
+    if (!blob) {
+      throw new Error('No recording blob available for disk write.');
+    }
+    const verify = await verifyStoredDiskRecordingDirectory({ requestPermission: false });
+    if (!verify.ok) {
+      throw new Error(verify.message || 'Disk folder is not accessible.');
+    }
+    const directoryHandle = await readDiskDirectoryHandle();
+    if (!directoryHandle) {
+      throw new Error('No local disk folder is selected.');
+    }
+    const guessedExt = blob.type && blob.type.includes('/')
+      ? (blob.type.split('/')[1] || 'bin').split(';')[0]
+      : 'bin';
+    const safeFilename = this.sanitizeDiskFilename(filename, guessedExt);
+    const fileHandle = await directoryHandle.getFileHandle(safeFilename, { create: true });
+    const writable = await fileHandle.createWritable();
+    try {
+      await writable.write(blob);
+      await writable.close();
+    } catch (error) {
+      try {
+        await writable.abort();
+      } catch (abortError) {
+        console.warn('Unable to abort disk writer after failure', abortError);
+      }
+      throw error;
+    }
+    return {
+      filename: safeFilename,
+      bytes: blob.size || 0,
+      folderName: verify.folderName || readDiskRecordingState().folderName || null,
+    };
+  }
+
+  async queueLocalDiskWrite(meta, localElement) {
+    if (!localElement) {
+      return { status: 'skipped', service: 'local', reason: 'not-visible' };
+    }
+    if (!meta?.blob) {
+      localElement.dataset.status = 'error';
+      localElement.textContent = 'Local disk: missing file data';
+      return { status: 'error', service: 'local', error: new Error('Missing recording blob') };
+    }
+    if (!this.isDiskDestinationReady()) {
+      localElement.dataset.status = 'skipped';
+      localElement.textContent = 'Local disk: not armed (download only)';
+      return { status: 'skipped', service: 'local', reason: 'not-armed' };
+    }
+    localElement.dataset.status = 'pending';
+    localElement.textContent = 'Local disk: writing…';
+    try {
+      const saved = await this.saveBlobToArmedDisk(meta.blob, meta.filename);
+      localElement.dataset.status = 'uploaded';
+      const sizeText = saved.bytes ? ` (${this.formatFileSize(saved.bytes)})` : '';
+      localElement.textContent = `Local disk: saved${sizeText}`;
+      localElement.title = saved.folderName
+        ? `Saved to local folder: ${saved.folderName}`
+        : 'Saved to the armed local folder.';
+      return { status: 'uploaded', service: 'local', ...saved };
+    } catch (error) {
+      console.error('Failed writing recording to local disk', error);
+      localElement.dataset.status = 'error';
+      localElement.textContent = `Local disk: ${error?.message || 'write failed'}`;
+      localElement.title = 'Local disk write failed.';
+      return { status: 'error', service: 'local', error };
     }
   }
 
@@ -4643,10 +4980,12 @@ class PodcastStudioApp {
         this.applyUploadResult(serviceElements?.dropbox, results.dropbox);
       }
       if (uploadKeys.drive) {
-        this.finalizeUploadTask('drive', uploadKeys.drive, results.drive?.status || 'unknown');
+        const driveStatus = this.normalizeUploadStatus('drive', results.drive?.status || 'unknown');
+        this.finalizeUploadTask('drive', uploadKeys.drive, driveStatus);
       }
       if (uploadKeys.dropbox) {
-        this.finalizeUploadTask('dropbox', uploadKeys.dropbox, results.dropbox?.status || 'unknown');
+        const dropboxStatus = this.normalizeUploadStatus('dropbox', results.dropbox?.status || 'unknown');
+        this.finalizeUploadTask('dropbox', uploadKeys.dropbox, dropboxStatus);
       }
     } catch (error) {
       console.error('Cloud upload failed', error);
@@ -4684,6 +5023,9 @@ class PodcastStudioApp {
   }
 
   dispose() {
+    this.driveRequestTimers.forEach((_timers, uuid) => {
+      this.clearDriveRequestTimers(uuid);
+    });
     if (this.rosterTimer) {
       clearInterval(this.rosterTimer);
       this.rosterTimer = null;
@@ -4699,6 +5041,10 @@ class PodcastStudioApp {
     if (this.boundDriveProgressHandler) {
       window.removeEventListener(DRIVE_PROGRESS_EVENT, this.boundDriveProgressHandler);
       this.boundDriveProgressHandler = null;
+    }
+    if (this.boundRemoteRecorderHandler) {
+      window.removeEventListener(REMOTE_RECORDER_EVENT, this.boundRemoteRecorderHandler);
+      this.boundRemoteRecorderHandler = null;
     }
     if (this.levelOff) {
       this.levelOff();
@@ -4792,6 +5138,7 @@ class PodcastStudioApp {
     this.remoteOverlayContent = null;
     this.rosterDriveButtons.clear();
     this.rosterDriveStatuses.clear();
+    this.driveRecorderStates.clear();
     this.driveStatusResetTimers.forEach((timer) => clearTimeout(timer));
     this.driveStatusResetTimers.clear();
   }
